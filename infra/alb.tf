@@ -2,18 +2,18 @@
 
 # 1. 로드 밸런서 본체 생성
 resource "aws_lb" "main" {
-  name               = "token-ledger-alb"
+  name               = "token-pilot-alb"
   internal           = false
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb_sg.id]
   subnets            = [aws_subnet.public_a.id, aws_subnet.public_c.id]
 
-  tags = { Name = "token-ledger-alb" }
+  tags = { Name = "token-pilot-alb" }
 }
 
 # 2. 스프링 부트(8080)용 타겟 그룹
 resource "aws_lb_target_group" "spring_tg" {
-  name        = "tg-token-ledger-spring"
+  name        = "tg-token-pilot-spring"
   port        = 8080
   protocol    = "HTTP"
   vpc_id      = aws_vpc.main.id
@@ -32,7 +32,7 @@ resource "aws_lb_target_group" "spring_tg" {
 
 # 3. 그라파나(3000)용 타겟 그룹
 resource "aws_lb_target_group" "grafana_tg" {
-  name        = "tg-token-ledger-grafana"
+  name        = "tg-token-pilot-grafana"
   port        = 3000
   protocol    = "HTTP"
   vpc_id      = aws_vpc.main.id
@@ -51,7 +51,7 @@ resource "aws_lb_target_group" "grafana_tg" {
 
 # 🌟 [추가됨] 4. 이미 발급된 ACM 인증서 데이터 가져오기
 data "aws_acm_certificate" "issued_cert" {
-  domain   = "token-ledger.site" # 발급받으신 도메인 입력
+  domain   = "token-pilot.site" # 발급받으신 도메인 입력
   statuses = ["ISSUED"]
 }
 

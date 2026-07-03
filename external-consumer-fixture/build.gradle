@@ -4,7 +4,7 @@ plugins {
     id 'java'
 }
 
-group = 'io.tokenledger.fixture'
+group = 'io.tokenpilot.fixture'
 version = '0.0.1-SNAPSHOT'
 
 def usePublishedStarter = providers.gradleProperty('usePublishedStarter').map(Boolean.&parseBoolean).getOrElse(false)
@@ -21,7 +21,7 @@ repositories {
     if (!usePublishedStarter || useSnapshotStarter) {
         mavenLocal()
         maven {
-            url = uri("https://maven.pkg.github.com/token-ledger/token-ledger")
+            url = uri("https://maven.pkg.github.com/tokenpliot/tokenpilot")
             credentials {
                 username = findProperty("gpr.user") ?: System.getenv("GITHUB_ACTOR")
                 password = findProperty("gpr.key") ?: System.getenv("GITHUB_TOKEN")
@@ -40,9 +40,9 @@ dependencyManagement {
 
 dependencies {
     if (usePublishedStarter) {
-        implementation "cloud.token-ledger:token-ledger-starter:${publishedStarterVersion}"
+        implementation "cloud.token-pilot:token-pilot-starter:${publishedStarterVersion}"
     } else {
-        implementation project(':token-ledger-starter')
+        implementation project(':token-pilot-starter')
     }
 
     implementation 'org.springframework.boot:spring-boot-starter-web'

@@ -6,17 +6,17 @@ on:
       - main
     # 👇 모니터링 관련 파일이 수정될 때는 이 파이프라인을 무시합니다!
     paths-ignore:
-      - 'token-ledger-sample-app/grafana/**'
-      - 'token-ledger-sample-app/prometheus/**'
+      - 'token-pilot-sample-app/grafana/**'
+      - 'token-pilot-sample-app/prometheus/**'
       - '.github/workflows/monitor-deploy.yml'
       - 'README.md'
       - 'infra/**'
 
 env:
   AWS_REGION: ap-northeast-2
-  ECR_REPOSITORY_APP: token-ledger-app
-  ECS_CLUSTER: token-ledger-cluster
-  ECS_SERVICE: token-ledger-test-app-task-service
+  ECR_REPOSITORY_APP: token-pilot-app
+  ECS_CLUSTER: token-pilot-cluster
+  ECS_SERVICE: token-pilot-test-app-task-service
 
 jobs:
   deploy-app:
@@ -58,7 +58,7 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker build -f token-ledger-sample-app/Dockerfile \
+          docker build -f token-pilot-sample-app/Dockerfile \
             -t $ECR_REGISTRY/${{ env.ECR_REPOSITORY_APP }}:$IMAGE_TAG \
             -t $ECR_REGISTRY/${{ env.ECR_REPOSITORY_APP }}:latest .
           docker push $ECR_REGISTRY/${{ env.ECR_REPOSITORY_APP }}:latest

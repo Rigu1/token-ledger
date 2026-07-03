@@ -1,0 +1,21 @@
+dependencies {
+    api project(':token-pilot-core')
+    compileOnly project(':token-pilot-spring-ai')
+    compileOnly project(':token-pilot-micrometer')
+    compileOnly project(':token-pilot-budget')
+    compileOnly project(':token-pilot-notification')
+    compileOnly 'org.springframework.ai:spring-ai-model'
+    compileOnly 'org.springframework.ai:spring-ai-client-chat'
+    compileOnly 'io.micrometer:micrometer-core'
+    implementation 'org.springframework.boot:spring-boot-autoconfigure'
+
+    annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation project(':token-pilot-spring-ai')
+    testImplementation project(':token-pilot-micrometer')
+    testImplementation project(':token-pilot-budget')
+    testImplementation project(':token-pilot-notification')
+    testImplementation 'org.springframework.ai:spring-ai-model'
+    testImplementation 'org.springframework.ai:spring-ai-client-chat'
+    testImplementation 'io.micrometer:micrometer-core'
+}

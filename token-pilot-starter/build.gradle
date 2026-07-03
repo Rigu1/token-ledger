@@ -1,0 +1,10 @@
+dependencies {
+    // Final user entrypoint.
+    // Applications should depend on this starter instead of individual token-pilot modules.
+    api project(':token-pilot-core')
+    api project(':token-pilot-spring-ai')
+    api project(':token-pilot-micrometer')
+    api project(':token-pilot-budget')
+    api project(':token-pilot-notification')
+    api project(':token-pilot-autoconfigure')
+}

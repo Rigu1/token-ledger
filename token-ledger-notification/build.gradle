@@ -1,9 +1,0 @@
-plugins {
-    id 'java-library'
-}
-
-dependencies {
-    api project(':token-ledger-budget')
-
-    testImplementation 'org.mockito:mockito-core'
-}

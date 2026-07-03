@@ -15,9 +15,9 @@ provider "aws" {
 }
 
 # 1. ECR 리포지토리 생성 (도커 이미지 창고)
-resource "aws_ecr_repository" "token_ledger_repo" {
+resource "aws_ecr_repository" "token_pilot_repo" {
   # 주의: 깃허브 액션 deploy.yml에 적혀있는 ECR 이름과 정확히 똑같이 맞춰주세요!
-  name                 = "token-ledger-app"
+  name                 = "token-pilot-app"
   image_tag_mutability = "MUTABLE"
 
   image_scanning_configuration {
@@ -26,13 +26,13 @@ resource "aws_ecr_repository" "token_ledger_repo" {
 }
 
 # 2. ECS 클러스터 생성 (컨테이너들이 뛰어놀 공간)
-resource "aws_ecs_cluster" "token_ledger_cluster" {
-  name = "token-ledger-cluster"
+resource "aws_ecs_cluster" "token_pilot_cluster" {
+  name = "token-pilot-cluster"
 }
 
 # 3. 그라파나용 ECR 창고 추가
-resource "aws_ecr_repository" "token_ledger_grafana_repo" {
-  name                 = "token-ledger-grafana" # 깃허브 액션과 이름이 일치해야 합니다.
+resource "aws_ecr_repository" "token_pilot_grafana_repo" {
+  name                 = "token-pilot-grafana" # 깃허브 액션과 이름이 일치해야 합니다.
   image_tag_mutability = "MUTABLE"
 
   image_scanning_configuration {
@@ -41,8 +41,8 @@ resource "aws_ecr_repository" "token_ledger_grafana_repo" {
 }
 
 # 4. 프로메테우스용 ECR 창고 추가
-resource "aws_ecr_repository" "token_ledger_prometheus_repo" {
-  name                 = "token-ledger-prometheus" # 깃허브 액션 환경변수와 일치시킵니다.
+resource "aws_ecr_repository" "token_pilot_prometheus_repo" {
+  name                 = "token-pilot-prometheus" # 깃허브 액션 환경변수와 일치시킵니다.
   image_tag_mutability = "MUTABLE"
 
   image_scanning_configuration {
@@ -55,8 +55,8 @@ resource "aws_ecr_repository" "token_ledger_prometheus_repo" {
 # ---------------------------------------------------
 
 # 1. 앱 본체 ECR 정책
-resource "aws_ecr_lifecycle_policy" "token_ledger_app_policy" {
-  repository = aws_ecr_repository.token_ledger_repo.name
+resource "aws_ecr_lifecycle_policy" "token_pilot_app_policy" {
+  repository = aws_ecr_repository.token_pilot_repo.name
 
   policy = jsonencode({
     rules = [{
@@ -75,8 +75,8 @@ resource "aws_ecr_lifecycle_policy" "token_ledger_app_policy" {
 }
 
 # 2. 그라파나 ECR 정책
-resource "aws_ecr_lifecycle_policy" "token_ledger_grafana_policy" {
-  repository = aws_ecr_repository.token_ledger_grafana_repo.name
+resource "aws_ecr_lifecycle_policy" "token_pilot_grafana_policy" {
+  repository = aws_ecr_repository.token_pilot_grafana_repo.name
 
   policy = jsonencode({
     rules = [{
@@ -95,8 +95,8 @@ resource "aws_ecr_lifecycle_policy" "token_ledger_grafana_policy" {
 }
 
 # 3. 프로메테우스 ECR 정책
-resource "aws_ecr_lifecycle_policy" "token_ledger_prometheus_policy" {
-  repository = aws_ecr_repository.token_ledger_prometheus_repo.name
+resource "aws_ecr_lifecycle_policy" "token_pilot_prometheus_policy" {
+  repository = aws_ecr_repository.token_pilot_prometheus_repo.name
 
   policy = jsonencode({
     rules = [{

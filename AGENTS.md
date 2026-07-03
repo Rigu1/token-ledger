@@ -1,10 +1,10 @@
-# Token Ledger Agent Guide
+# Token Pilot Agent Guide
 
 ## Project Summary
 
-Token Ledger is a multi-module Java/Spring library for tracking Spring AI token usage, calculating model costs, publishing Micrometer metrics, and enforcing budget policy.
+Token Pilot is a multi-module Java/Spring library for tracking Spring AI token usage, calculating model costs, publishing Micrometer metrics, and enforcing budget policy.
 
-Primary goal: users should eventually add one dependency, `token-ledger-starter`, configure `token-ledger.*`, and get automatic cost tracking for Spring AI calls.
+Primary goal: users should eventually add one dependency, `token-pilot-starter`, configure `token-pilot.*`, and get automatic cost tracking for Spring AI calls.
 
 ## Agent Rules
 
@@ -13,7 +13,7 @@ Primary goal: users should eventually add one dependency, `token-ledger-starter`
 - Keep core domain code precise and dependency-light.
 - Use `BigDecimal` for monetary calculations.
 - Avoid high-cardinality Micrometer tags by default.
-- Do not place business logic in `token-ledger-starter`; keep starter as a thin user entrypoint.
+- Do not place business logic in `token-pilot-starter`; keep starter as a thin user entrypoint.
 - If implementation classes stay under `internal`, expose them to other modules through deliberate public factories or public configuration APIs.
 - Commit messages must be written in Korean unless the user explicitly requests another language.
 
@@ -21,16 +21,16 @@ Primary goal: users should eventually add one dependency, `token-ledger-starter`
 
 | Layer | Modules | Responsibility |
 | --- | --- | --- |
-| API & Domain | `token-ledger-core` | Core models, pricing, cost calculation interfaces, ledger interfaces |
-| Adapter | `token-ledger-spring-ai`, `token-ledger-micrometer`, `token-ledger-budget`, `token-ledger-notification` | Integrate with Spring AI, Micrometer, budget policy, and notification event publishing |
-| Infrastructure | `token-ledger-autoconfigure`, `token-ledger-starter` | Spring Boot auto-configuration and final user dependency |
-| Demo | `token-ledger-sample-app`, `external-consumer-fixture` | Local verification app for starter/autoconfigure integration and published artifact consumption |
+| API & Domain | `token-pilot-core` | Core models, pricing, cost calculation interfaces, ledger interfaces |
+| Adapter | `token-pilot-spring-ai`, `token-pilot-micrometer`, `token-pilot-budget`, `token-pilot-notification` | Integrate with Spring AI, Micrometer, budget policy, and notification event publishing |
+| Infrastructure | `token-pilot-autoconfigure`, `token-pilot-starter` | Spring Boot auto-configuration and final user dependency |
+| Demo | `token-pilot-sample-app`, `external-consumer-fixture` | Local verification app for starter/autoconfigure integration and published artifact consumption |
 
 ## Architecture Decision: Notification
 
 라이브러리는 알림 이벤트를 발행하고 실제 메일/Slack/Webhook 발송은 사용자 애플리케이션이 담당한다.
 
-- `token-ledger-notification`은 알림 이벤트 발행과 중복 방지 로직만 담당한다.
+- `token-pilot-notification`은 알림 이벤트 발행과 중복 방지 로직만 담당한다.
 - 실제 메일/Slack/Webhook 전송은 사용자 애플리케이션의 `BudgetNotificationHandler` 구현체가 담당한다.
 - 라이브러리 내부에서 SMTP 설정이나 외부 메일 서비스를 기본 흐름으로 포함하지 않는다.
 
@@ -38,14 +38,14 @@ Primary goal: users should eventually add one dependency, `token-ledger-starter`
 
 | Module | Status | Notes |
 | --- | --- | --- |
-| `token-ledger-core` | Basic implementation complete | Domain records, pricing, calculator, registry, ledger manager |
-| `token-ledger-spring-ai` | Basic implementation complete | `UsageExtractor`, `LedgerAdvisor`, response usage recording |
-| `token-ledger-micrometer` | Basic implementation complete | Tag whitelist and metric metadata implemented; options object is next |
-| `token-ledger-budget` | Basic implementation complete | Needs richer policy/window/store support |
-| `token-ledger-notification` | Basic implementation complete | Event-based notification API; handler interface, in-memory state store, window-based deduplication |
-| `token-ledger-autoconfigure` | Basic implementation complete | Bean registration, property binding, pricing/budget/notification wiring, and ChatClient customizer implemented |
-| `token-ledger-starter` | Basic implementation complete | Thin final user entrypoint that brings runtime modules together |
-| `token-ledger-sample-app` | Basic E2E complete | Direct ledger metrics, budget, and fake Spring AI advisor E2E implemented |
+| `token-pilot-core` | Basic implementation complete | Domain records, pricing, calculator, registry, ledger manager |
+| `token-pilot-spring-ai` | Basic implementation complete | `UsageExtractor`, `LedgerAdvisor`, response usage recording |
+| `token-pilot-micrometer` | Basic implementation complete | Tag whitelist and metric metadata implemented; options object is next |
+| `token-pilot-budget` | Basic implementation complete | Needs richer policy/window/store support |
+| `token-pilot-notification` | Basic implementation complete | Event-based notification API; handler interface, in-memory state store, window-based deduplication |
+| `token-pilot-autoconfigure` | Basic implementation complete | Bean registration, property binding, pricing/budget/notification wiring, and ChatClient customizer implemented |
+| `token-pilot-starter` | Basic implementation complete | Thin final user entrypoint that brings runtime modules together |
+| `token-pilot-sample-app` | Basic E2E complete | Direct ledger metrics, budget, and fake Spring AI advisor E2E implemented |
 | `external-consumer-fixture` | Basic implementation complete | Verification module that consumes the published starter from Maven Central by default and can target snapshots explicitly |
 
 ## Current Work Focus
@@ -54,12 +54,12 @@ The current MVP workstream is packaging and external consumer validation.
 
 MVP tasks:
 
-- Keep sample app dependent on `project(':token-ledger-starter')`.
-- Keep local Maven publishing healthy for snapshot verification and keep the external consumer fixture healthy as the default Maven Central release verification path.
+- Keep sample app dependent on `project(':token-pilot-starter')`.
+- Keep local Maven publishing healthy for snapshot verification and keep the external consumer fixture ready for Maven Central release verification after renamed coordinates are published.
 - Validate GitHub Packages snapshot publishing before public release.
 - Keep published POM metadata aligned with Maven Central promotion requirements.
 - Keep Gradle signing and release property wiring ready for Central release work.
-- Keep JReleaser Central Portal staging and deploy wiring aligned with the verified `cloud.token-ledger` namespace.
+- Keep JReleaser Central Portal staging and deploy wiring aligned with the target `cloud.token-pilot` namespace.
 
 Autoconfigure basic implementation has landed. Future autoconfigure work should be incremental hardening rather than first implementation.
 
@@ -79,7 +79,7 @@ Expected final user setup:
 
 ```gradle
 dependencies {
-    implementation 'cloud.token-ledger:token-ledger-starter'
+    implementation 'cloud.token-pilot:token-pilot-starter'
 }
 ```
 
@@ -87,19 +87,19 @@ In this repository, sample app verification uses:
 
 ```gradle
 dependencies {
-    implementation project(':token-ledger-starter')
+    implementation project(':token-pilot-starter')
 }
 ```
 
-Starter should include the modules users need at runtime, especially `token-ledger-autoconfigure`. The starter should not create beans itself.
+Starter should include the modules users need at runtime, especially `token-pilot-autoconfigure`. The starter should not create beans itself.
 
 ## Autoconfigure Contract
 
 The autoconfigure module provides:
 
 - `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`
-- `TokenLedgerAutoConfiguration`
-- `TokenLedgerProperties`
+- `TokenPilotAutoConfiguration`
+- `TokenPilotProperties`
 - Pricing property binding
 - Budget property binding
 - Notification property binding
@@ -120,7 +120,7 @@ The autoconfigure module provides:
 Shared configuration prefix:
 
 ```yaml
-token-ledger:
+token-pilot:
   enabled: true
 ```
 
@@ -132,9 +132,9 @@ Bean registration principles:
 
 - Use `@ConditionalOnMissingBean` so user beans win over defaults.
 - Use `@ConditionalOnClass` for optional adapter integrations.
-- Use `@ConditionalOnProperty` for feature flags under `token-ledger.*`.
+- Use `@ConditionalOnProperty` for feature flags under `token-pilot.*`.
 - Register beans by public interface type whenever possible.
-- Keep `token-ledger-starter` free of business logic and bean creation.
+- Keep `token-pilot-starter` free of business logic and bean creation.
 
 Default bean graph:
 
@@ -145,12 +145,12 @@ Default bean graph:
 | `LedgerManager` | missing bean | Cost and usage recording |
 | `UsageExtractor` | Spring AI classpath + missing bean | Spring AI response usage extraction |
 | `LedgerAdvisor` | Spring AI classpath + missing bean | ChatClient advisor |
-| `MicroCostMetricsPublisher` | Micrometer classpath + `token-ledger.metrics.enabled` | Cost/token metrics listener |
-| `BudgetStateStore` | `token-ledger.budget.enabled` + missing bean | Default in-memory budget state |
-| `BudgetEvaluator` | `token-ledger.budget.enabled` + missing bean | Default budget evaluator |
+| `MicroCostMetricsPublisher` | Micrometer classpath + `token-pilot.metrics.enabled` | Cost/token metrics listener |
+| `BudgetStateStore` | `token-pilot.budget.enabled` + missing bean | Default in-memory budget state |
+| `BudgetEvaluator` | `token-pilot.budget.enabled` + missing bean | Default budget evaluator |
 | `ChatClientCustomizer` | Spring AI classpath + `LedgerAdvisor` bean | Adds advisor to ChatClient builders |
-| `NotificationStateStore` | `token-ledger.notification.enabled` + missing bean | Window-based notification deduplication state |
-| `BudgetNotificationService` | `token-ledger.notification.enabled` + `BudgetNotificationHandler` bean | Publishes budget notification events to user-defined handler |
+| `NotificationStateStore` | `token-pilot.notification.enabled` + missing bean | Window-based notification deduplication state |
+| `BudgetNotificationService` | `token-pilot.notification.enabled` + `BudgetNotificationHandler` bean | Publishes budget notification events to user-defined handler |
 
 `core.internal` implementation classes should remain package-private. Cross-module construction should go through `LedgerComponents` or another deliberate public factory/API. Do not make internal implementation classes public just to satisfy autoconfigure access.
 
@@ -182,7 +182,7 @@ class MailBudgetNotificationHandler implements BudgetNotificationHandler {
 ```
 
 - `BudgetNotificationHandler` 빈이 없으면 `BudgetNotificationService`는 등록되지 않는다 (no-op).
-- `token-ledger.notification.enabled=true` 설정 시에만 notification 빈이 등록된다.
+- `token-pilot.notification.enabled=true` 설정 시에만 notification 빈이 등록된다.
 - 알림 중복 방지는 `(targetId, budgetWindow)` 조합으로 처리된다.
 - 같은 window 안에서는 낮거나 같은 threshold 재발송이 방지된다.
 - 새 window에서는 50/80/100% 알림이 다시 가능하다.
@@ -190,7 +190,7 @@ class MailBudgetNotificationHandler implements BudgetNotificationHandler {
 ## Recommended Configuration Shape
 
 ```yaml
-token-ledger:
+token-pilot:
   enabled: true
   pricing:
     plans:
@@ -213,21 +213,21 @@ token-ledger:
 
 ## Sample App Direction
 
-`token-ledger-sample-app` should be a starter integration verification app.
+`token-pilot-sample-app` should be a starter integration verification app.
 
 Current endpoints:
 
-- `GET /test/token-ledger/smoke`: app is running and starter is on classpath.
-- `GET /test/token-ledger/beans`: reports whether expected autoconfigure beans exist.
-- `GET /test/token-ledger/record`: records a deterministic token usage event through `LedgerManager`.
-- `GET /test/token-ledger/budget`: exercises budget enabled/limit behavior when budget beans are present.
+- `GET /test/token-pilot/smoke`: app is running and starter is on classpath.
+- `GET /test/token-pilot/beans`: reports whether expected autoconfigure beans exist.
+- `GET /test/token-pilot/record`: records a deterministic token usage event through `LedgerManager`.
+- `GET /test/token-pilot/budget`: exercises budget enabled/limit behavior when budget beans are present.
 - `GET /actuator/prometheus`: validates actuator/prometheus exposure.
 
 Test-only E2E endpoint:
 
-- `GET /test/token-ledger/chat`: exercises the Spring AI `ChatClient` advisor path with a fake/mock provider or documented real provider setup.
+- `GET /test/token-pilot/chat`: exercises the Spring AI `ChatClient` advisor path with a fake/mock provider or documented real provider setup.
 
-The direct ledger E2E test verifies that `/actuator/prometheus` contains token-ledger metrics after a ledger event is recorded. The fake ChatClient E2E test verifies that Spring AI `ChatClient` calls flow through `LedgerAdvisor` into token-ledger metrics without requiring a real provider API key.
+The direct ledger E2E test verifies that `/actuator/prometheus` contains token-pilot metrics after a ledger event is recorded. The fake ChatClient E2E test verifies that Spring AI `ChatClient` calls flow through `LedgerAdvisor` into token-pilot metrics without requiring a real provider API key.
 
 ## Maven Publishing Direction
 
@@ -237,10 +237,10 @@ MVP publishing should proceed in this order:
 2. Confirm artifact ids, versions, generated POM metadata, and runtime dependency scopes.
 3. Run `publishToMavenLocal`.
 4. Create or maintain an external consumer verification module that depends on the published artifact coordinates.
-5. Verify the consumer can use only `implementation 'cloud.token-ledger:token-ledger-starter:0.0.1-SNAPSHOT'`.
+5. Verify the consumer can use only `implementation 'cloud.token-pilot:token-pilot-starter:0.0.1-SNAPSHOT'`.
 6. Publish snapshots to GitHub Packages.
 7. Document consumer credentials and CI publish flow before public release.
-8. Verify Maven Central release consumption with `mavenCentral()` only.
+8. Verify Maven Central release consumption with `mavenCentral()` only after the renamed coordinates are published.
 
 ## Roadmap
 
@@ -256,7 +256,7 @@ MVP publishing should proceed in this order:
 - `core.internal` implementation classes are package-private by design. Cross-module construction should continue through public factory/configuration APIs.
 - Micrometer publisher filters tags, but the configuration is still constructor-level and should be wrapped in an options object before autoconfigure integration.
 - Sample app E2E uses a fake Spring AI `ChatModel`; real provider API behavior is not yet verified.
-- Maven Central release consumption is now verified manually, but automated regression coverage is still thin.
+- Maven Central release consumption must be re-verified after the Token Pilot rename and `cloud.token-pilot` coordinate publication.
 
 ## Verification
 
@@ -269,7 +269,7 @@ Run all tests:
 Run sample app after implementation work:
 
 ```bash
-./gradlew :token-ledger-sample-app:bootRun
+./gradlew :token-pilot-sample-app:bootRun
 ```
 
 Check Prometheus metrics:
@@ -282,22 +282,24 @@ Verify the published starter from the external consumer module:
 
 ```bash
 ./gradlew :external-consumer-fixture:bootRun -PusePublishedStarter=true
-curl http://localhost:8081/test/token-ledger/published
+curl http://localhost:8081/test/token-pilot/published
 ```
+
+Use this Central verification path only after the renamed `cloud.token-pilot` artifacts are published.
 
 Verify the snapshot path explicitly:
 
 ```bash
 ./gradlew publishToMavenLocal
 ./gradlew :external-consumer-fixture:bootRun -PusePublishedStarter=true -PpublishedStarterVersion=0.0.1-SNAPSHOT
-curl http://localhost:8081/test/token-ledger/published
+curl http://localhost:8081/test/token-pilot/published
 ```
 
 Publish snapshots to GitHub Packages:
 
 ```bash
 ./gradlew publish \
-  -PmavenRepoUrl=https://maven.pkg.github.com/token-ledger/token-ledger \
+  -PmavenRepoUrl=https://maven.pkg.github.com/tokenpliot/tokenpilot \
   -PmavenRepoUsername="$GITHUB_ACTOR" \
   -PmavenRepoPassword="$GITHUB_TOKEN"
 ```
@@ -317,12 +319,20 @@ Stage and deploy a Central release:
 
 ## Update History
 
+### 2026-07-03
+
+- Renamed project branding to Token Pilot.
+- Renamed Gradle modules to the `token-pilot-*` pattern.
+- Moved Java packages to `io.tokenpilot`.
+- Changed the Spring configuration prefix to `token-pilot.*`.
+- Updated GitHub repository metadata to `tokenpliot/tokenpilot` and Maven coordinates to the target `cloud.token-pilot:*` namespace.
+
 ### 2026-06-08
 
-- Added `token-ledger-notification` as an event-based notification API with user-provided `BudgetNotificationHandler` implementations.
+- Added `token-pilot-notification` as an event-based notification API with user-provided `BudgetNotificationHandler` implementations.
 - Kept notification delivery channels such as SMTP, Slack, and Webhook outside the default library flow; applications own concrete delivery.
-- Added autoconfigure wiring for notification state and service beans behind `token-ledger.notification.enabled=true` and a user handler bean.
-- Removed Redis budget store work from the MVP notification path so `token-ledger-budget` remains dependency-light.
+- Added autoconfigure wiring for notification state and service beans behind `token-pilot.notification.enabled=true` and a user handler bean.
+- Removed Redis budget store work from the MVP notification path so `token-pilot-budget` remains dependency-light.
 
 ### 2026-05-23
 
@@ -333,14 +343,14 @@ Stage and deploy a Central release:
 ### 2026-05-11
 
 - Added Gradle `maven-publish` configuration for library modules with shared POM metadata and optional remote repository credentials.
-- Added `external-consumer-fixture` as a repository-managed verification module that depends on published `cloud.token-ledger:token-ledger-starter:0.0.1-SNAPSHOT` from `mavenLocal()`.
+- Added `external-consumer-fixture` as a repository-managed verification module that depends on published `cloud.token-pilot:token-pilot-starter:0.0.1-SNAPSHOT` from `mavenLocal()`.
 - Chose GitHub Packages as the first remote snapshot repository target and documented the publish command in `README.md`.
 - Added GitHub Packages consumer examples and expanded published POM metadata for later Maven Central promotion.
-- Switched `external-consumer-fixture` to use `project(':token-ledger-starter')` by default and require `-PusePublishedStarter=true` for published artifact verification so CI builds do not fail before publish.
-- Promoted `cloud.token-ledger:token-ledger-starter:0.0.1` to Maven Central and switched `external-consumer-fixture` to use the Central release by default when published artifact verification is enabled.
+- Switched `external-consumer-fixture` to use `project(':token-pilot-starter')` by default and require `-PusePublishedStarter=true` for published artifact verification so CI builds do not fail before publish.
+- Promoted `cloud.token-pilot:token-pilot-starter:0.0.1` to Maven Central and switched `external-consumer-fixture` to use the Central release by default when published artifact verification is enabled.
 - Added Gradle `signing` integration and `projectVersion` override support so release builds can be produced with local GPG material before Central Portal upload wiring is finalized.
 - Prefer `signingKeyFile` over inline `signingKey` for local release signing because multiline armored keys are less error-prone when loaded from a file.
-- Added JReleaser Gradle integration targeting the Central Publisher Portal with `build/staging-deploy` staging repositories and `cloud.token-ledger` namespace wiring.
+- Added JReleaser Gradle integration targeting the Central Publisher Portal with `build/staging-deploy` staging repositories and `cloud.token-pilot` namespace wiring.
 
 ### 2026-05-04
 
@@ -354,13 +364,13 @@ Stage and deploy a Central release:
 - Renamed project guidance from `GEMINI.md` to `AGENTS.md`.
 - Added README roadmap for current project gaps.
 - Added starter-focused workstream guidance.
-- Clarified that `token-ledger-starter` is the current user-entrypoint task while autoconfigure is owned separately.
+- Clarified that `token-pilot-starter` is the current user-entrypoint task while autoconfigure is owned separately.
 - Added a README autoconfigure implementation guide covering bean registration, property binding, internal factory options, and test expectations.
 - Implemented Micrometer tag whitelist support and metric description/base unit metadata; documented the next options-object step.
 
 ### 2026-04-19
 
-- Moved core domain records into `io.tokenledger.core.domain`.
+- Moved core domain records into `io.tokenpilot.core.domain`.
 - Tightened visibility of core internal default implementations.
 - Updated dependent modules to use the new domain package structure.
 - Verified tests after the package refactor.

@@ -6,7 +6,7 @@ plugins {
 }
 
 allprojects {
-    group = 'cloud.token-ledger'
+    group = 'cloud.token-pilot'
     version = providers.gradleProperty('projectVersion').orElse('0.0.1-SNAPSHOT').get()
 
     repositories {
@@ -34,12 +34,12 @@ jreleaser {
     gitRootSearch = true
 
     project {
-        copyright = '2026 Token Ledger'
-        authors = ['Token Ledger']
-        description = 'Token Ledger modules for Spring AI token usage tracking, cost calculation, metrics, and budget enforcement.'
+        copyright = '2026 Token Pilot'
+        authors = ['Token Pilot']
+        description = 'Token Pilot modules for Spring AI token usage tracking, cost calculation, metrics, and budget enforcement.'
         inceptionYear = '2026'
         links {
-            homepage = 'https://github.com/token-ledger/token-ledger'
+            homepage = 'https://github.com/tokenpliot/tokenpilot'
         }
     }
 
@@ -50,8 +50,8 @@ jreleaser {
     release {
         github {
             enabled = true
-            repoOwner = 'token-ledger'
-            name = 'token-ledger'
+            repoOwner = 'tokenpliot'
+            name = 'tokenpilot'
             skipTag = true
             skipRelease = true
 
@@ -84,15 +84,15 @@ jreleaser {
                 sonatype {
                     active = 'RELEASE'
                     url = 'https://central.sonatype.com/api/v1/publisher'
-                    namespace = 'cloud.token-ledger'
+                    namespace = 'cloud.token-pilot'
                     [
-                        'token-ledger-core',
-                        'token-ledger-spring-ai',
-                        'token-ledger-micrometer',
-                        'token-ledger-budget',
-                        'token-ledger-notification',
-                        'token-ledger-autoconfigure',
-                        'token-ledger-starter'
+                        'token-pilot-core',
+                        'token-pilot-spring-ai',
+                        'token-pilot-micrometer',
+                        'token-pilot-budget',
+                        'token-pilot-notification',
+                        'token-pilot-autoconfigure',
+                        'token-pilot-starter'
                     ].each { moduleName ->
                         stagingRepository("${moduleName}/build/staging-deploy")
                     }
@@ -138,7 +138,7 @@ subprojects {
         useJUnitPlatform()
     }
 
-    if (!(name in ['token-ledger-sample-app', 'external-consumer-fixture'])) {
+    if (!(name in ['token-pilot-sample-app', 'external-consumer-fixture'])) {
         apply plugin: 'maven-publish'
         apply plugin: 'signing'
 
@@ -164,13 +164,13 @@ subprojects {
 
                     pom {
                         name = project.name
-                        description = 'Token Ledger modules for Spring AI token usage tracking, cost calculation, metrics, and budget enforcement.'
-                        url = 'https://github.com/token-ledger/token-ledger'
+                        description = 'Token Pilot modules for Spring AI token usage tracking, cost calculation, metrics, and budget enforcement.'
+                        url = 'https://github.com/tokenpliot/tokenpilot'
                         inceptionYear = '2026'
 
                         organization {
-                            name = 'Token Ledger'
-                            url = 'https://github.com/token-ledger/token-ledger'
+                            name = 'Token Pilot'
+                            url = 'https://github.com/tokenpliot/tokenpilot'
                         }
 
                         licenses {
@@ -183,26 +183,26 @@ subprojects {
 
                         developers {
                             developer {
-                                id = 'token-ledger'
-                                name = 'Token Ledger'
-                                url = 'https://github.com/token-ledger'
+                                id = 'token-pilot'
+                                name = 'Token Pilot'
+                                url = 'https://github.com/tokenpliot'
                             }
                         }
 
                         issueManagement {
                             system = 'GitHub Issues'
-                            url = 'https://github.com/token-ledger/token-ledger/issues'
+                            url = 'https://github.com/tokenpliot/tokenpilot/issues'
                         }
 
                         ciManagement {
                             system = 'GitHub Actions'
-                            url = 'https://github.com/token-ledger/token-ledger/actions'
+                            url = 'https://github.com/tokenpliot/tokenpilot/actions'
                         }
 
                         scm {
-                            connection = 'scm:git:https://github.com/token-ledger/token-ledger.git'
-                            developerConnection = 'scm:git:ssh://git@github.com/token-ledger/token-ledger.git'
-                            url = 'https://github.com/token-ledger/token-ledger'
+                            connection = 'scm:git:https://github.com/tokenpliot/tokenpilot.git'
+                            developerConnection = 'scm:git:ssh://git@github.com/tokenpliot/tokenpilot.git'
+                            url = 'https://github.com/tokenpliot/tokenpilot'
                             tag = 'HEAD'
                         }
                     }

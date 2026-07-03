@@ -1,0 +1,5 @@
+dependencies {
+    api project(':token-pilot-core')
+    implementation 'io.micrometer:micrometer-observation'
+    implementation 'io.micrometer:micrometer-core'
+}

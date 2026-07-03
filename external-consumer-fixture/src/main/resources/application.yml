@@ -7,7 +7,7 @@ management:
       exposure:
         include: prometheus, health
 
-token-ledger:
+token-pilot:
   enabled: true
   pricing:
     plans:
