@@ -138,7 +138,7 @@ subprojects {
         useJUnitPlatform()
     }
 
-    if (!(name in ['token-pilot-sample-app', 'external-consumer-fixture'])) {
+    if (name != 'token-pilot-sample-app') {
         apply plugin: 'maven-publish'
         apply plugin: 'signing'
 

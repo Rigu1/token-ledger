@@ -24,7 +24,7 @@ Primary goal: users should eventually add one dependency, `token-pilot-starter`,
 | API & Domain | `token-pilot-core` | Core models, pricing, cost calculation interfaces, ledger interfaces |
 | Adapter | `token-pilot-spring-ai`, `token-pilot-micrometer`, `token-pilot-budget`, `token-pilot-notification` | Integrate with Spring AI, Micrometer, budget policy, and notification event publishing |
 | Infrastructure | `token-pilot-autoconfigure`, `token-pilot-starter` | Spring Boot auto-configuration and final user dependency |
-| Demo | `token-pilot-sample-app`, `external-consumer-fixture` | Local verification app for starter/autoconfigure integration and published artifact consumption |
+| Demo | `token-pilot-sample-app` | Local verification app for starter/autoconfigure integration |
 
 ## Architecture Decision: Notification
 
@@ -46,7 +46,6 @@ Primary goal: users should eventually add one dependency, `token-pilot-starter`,
 | `token-pilot-autoconfigure` | Basic implementation complete | Bean registration, property binding, pricing/budget/notification wiring, and ChatClient customizer implemented |
 | `token-pilot-starter` | Basic implementation complete | Thin final user entrypoint that brings runtime modules together |
 | `token-pilot-sample-app` | Basic E2E complete | Direct ledger metrics, budget, and fake Spring AI advisor E2E implemented |
-| `external-consumer-fixture` | Basic implementation complete | Verification module that consumes the published starter from Maven Central by default and can target snapshots explicitly |
 
 ## Current Work Focus
 
@@ -55,7 +54,7 @@ The current MVP workstream is packaging and external consumer validation.
 MVP tasks:
 
 - Keep sample app dependent on `project(':token-pilot-starter')`.
-- Keep local Maven publishing healthy for snapshot verification and keep the external consumer fixture ready for Maven Central release verification after renamed coordinates are published.
+- Keep local Maven publishing healthy for snapshot verification and add CI-based temporary external consumer verification after renamed coordinates are published.
 - Validate GitHub Packages snapshot publishing before public release.
 - Keep published POM metadata aligned with Maven Central promotion requirements.
 - Keep Gradle signing and release property wiring ready for Central release work.
@@ -236,7 +235,7 @@ MVP publishing should proceed in this order:
 1. Add Gradle `maven-publish` configuration.
 2. Confirm artifact ids, versions, generated POM metadata, and runtime dependency scopes.
 3. Run `publishToMavenLocal`.
-4. Create or maintain an external consumer verification module that depends on the published artifact coordinates.
+4. Create a CI-based temporary consumer project that depends on the published artifact coordinates.
 5. Verify the consumer can use only `implementation 'cloud.token-pilot:token-pilot-starter:0.0.1-SNAPSHOT'`.
 6. Publish snapshots to GitHub Packages.
 7. Document consumer credentials and CI publish flow before public release.
@@ -278,22 +277,15 @@ Check Prometheus metrics:
 curl http://localhost:8080/actuator/prometheus
 ```
 
-Verify the published starter from the external consumer module:
-
-```bash
-./gradlew :external-consumer-fixture:bootRun -PusePublishedStarter=true
-curl http://localhost:8081/test/token-pilot/published
-```
-
-Use this Central verification path only after the renamed `cloud.token-pilot` artifacts are published.
+Verify the published starter with a CI-created temporary consumer project after the renamed `cloud.token-pilot` artifacts are published.
 
 Verify the snapshot path explicitly:
 
 ```bash
 ./gradlew publishToMavenLocal
-./gradlew :external-consumer-fixture:bootRun -PusePublishedStarter=true -PpublishedStarterVersion=0.0.1-SNAPSHOT
-curl http://localhost:8081/test/token-pilot/published
 ```
+
+Then run the CI-created temporary consumer project against `mavenLocal()`.
 
 Publish snapshots to GitHub Packages:
 
@@ -326,6 +318,8 @@ Stage and deploy a Central release:
 - Moved Java packages to `io.tokenpilot`.
 - Changed the Spring configuration prefix to `token-pilot.*`.
 - Updated GitHub repository metadata to `tokenpliot/tokenpilot` and Maven coordinates to the target `cloud.token-pilot:*` namespace.
+- Moved sample deployment infrastructure and root local Docker helper scripts to https://github.com/tokenpliot/tokenpilot-demo-infra.
+- Removed the repository-managed external consumer fixture; future published artifact checks should use a CI-created temporary consumer project.
 
 ### 2026-06-08
 
@@ -343,11 +337,11 @@ Stage and deploy a Central release:
 ### 2026-05-11
 
 - Added Gradle `maven-publish` configuration for library modules with shared POM metadata and optional remote repository credentials.
-- Added `external-consumer-fixture` as a repository-managed verification module that depends on published `cloud.token-pilot:token-pilot-starter:0.0.1-SNAPSHOT` from `mavenLocal()`.
+- Added a repository-managed verification module that depends on published `cloud.token-pilot:token-pilot-starter:0.0.1-SNAPSHOT` from `mavenLocal()`.
 - Chose GitHub Packages as the first remote snapshot repository target and documented the publish command in `README.md`.
 - Added GitHub Packages consumer examples and expanded published POM metadata for later Maven Central promotion.
-- Switched `external-consumer-fixture` to use `project(':token-pilot-starter')` by default and require `-PusePublishedStarter=true` for published artifact verification so CI builds do not fail before publish.
-- Promoted `cloud.token-pilot:token-pilot-starter:0.0.1` to Maven Central and switched `external-consumer-fixture` to use the Central release by default when published artifact verification is enabled.
+- Switched the repository-managed verification module to use `project(':token-pilot-starter')` by default and require an explicit published-artifact verification flag so CI builds do not fail before publish.
+- Promoted `cloud.token-pilot:token-pilot-starter:0.0.1` to Maven Central and switched the repository-managed verification module to use the Central release by default when published artifact verification is enabled.
 - Added Gradle `signing` integration and `projectVersion` override support so release builds can be produced with local GPG material before Central Portal upload wiring is finalized.
 - Prefer `signingKeyFile` over inline `signingKey` for local release signing because multiline armored keys are less error-prone when loaded from a file.
 - Added JReleaser Gradle integration targeting the Central Publisher Portal with `build/staging-deploy` staging repositories and `cloud.token-pilot` namespace wiring.

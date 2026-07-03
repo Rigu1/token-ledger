@@ -50,7 +50,6 @@ token-pilot:
 | `token-pilot-autoconfigure` | Spring Boot autoconfiguration and property binding | Basic implementation complete |
 | `token-pilot-starter` | Final user dependency bundle | Basic implementation complete |
 | `token-pilot-sample-app` | Local starter verification app | Basic E2E complete |
-| `external-consumer-fixture` | Published starter consumer verification module | Maven local consumer verification |
 
 ## Metrics
 
@@ -125,6 +124,9 @@ Check Prometheus exposure:
 curl http://localhost:8080/actuator/prometheus
 ```
 
+Sample deployment and local Docker helper infrastructure lives in the separate
+[tokenpilot-demo-infra](https://github.com/tokenpliot/tokenpilot-demo-infra) repository.
+
 ## Maven Publishing
 
 ### Maven Central Release
@@ -147,17 +149,7 @@ dependencies {
 }
 ```
 
-Run the repository-managed external consumer module against the Central release after the renamed coordinates are available:
-
-```bash
-./gradlew :external-consumer-fixture:bootRun -PusePublishedStarter=true
-```
-
-Verify that the external app booted from the published artifact path:
-
-```bash
-curl http://localhost:8081/test/token-pilot/published
-```
+Published artifact consumption should be verified from CI with a temporary consumer project after the renamed coordinates are available.
 
 Prepare a signed release build locally:
 
@@ -189,19 +181,7 @@ Snapshot coordinates:
 cloud.token-pilot:token-pilot-starter:0.0.1-SNAPSHOT
 ```
 
-Run the external consumer module against the published starter:
-
-```bash
-./gradlew publishToMavenLocal :external-consumer-fixture:bootRun \
-  -PusePublishedStarter=true \
-  -PpublishedStarterVersion=0.0.1-SNAPSHOT
-```
-
-Verify that the external app booted from the published artifact path:
-
-```bash
-curl http://localhost:8081/test/token-pilot/published
-```
+Snapshot consumption should be verified from CI with a temporary consumer project.
 
 Current remote snapshot target is GitHub Packages. Publish with explicit repository credentials:
 
@@ -268,12 +248,12 @@ The starter and autoconfigure path is implemented at a basic level:
 - Budget beans are connected to `LedgerAdvisor` when budget is enabled.
 - The sample app confirms starter classpath, bean registration, direct ledger recording, Spring AI `ChatClient` advisor flow with a fake model, budget behavior, token-pilot metrics, and Prometheus actuator exposure.
 - Library modules publish through `maven-publish`.
-- `external-consumer-fixture` uses a project dependency by default so the main CI build stays green.
-- Published artifact verification is enabled explicitly with `-PusePublishedStarter=true`, with release `0.0.1` as the default published coordinate and `-PpublishedStarterVersion=0.0.1-SNAPSHOT` available for snapshot checks.
+- Published artifact verification should move to CI with a temporary external consumer project.
 
 Remaining MVP work:
 
 - Validate remote snapshot publishing and CI credentials flow for GitHub Packages.
+- Add CI-based external consumer verification for Maven Central and snapshot coordinates.
 
 ## Development
 
