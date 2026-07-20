@@ -317,7 +317,7 @@ The active checklist is in `docs/30_DAY_MVP_REPORT.md`; detailed long-term works
 ## Known Risks
 
 - `core.internal` implementation classes are package-private by design. Cross-module construction should continue through public factory/configuration APIs.
-- Current usage totals and cached/reasoning breakdown semantics can double-count; fix the domain invariant before expanding pricing.
+- `TokenUsage` now enforces inclusive input/output totals and validated cached/reasoning details. `DefaultCostCalculator` still iterates totals and details independently, so billable partitioning remains required before expanding pricing.
 - Current budget flow is check-then-add, is not an atomic reservation, and may not enforce `BLOCK` before provider invocation.
 - Current Micrometer `ai.token.*` metrics may duplicate Spring AI Observability; preserve compatibility while deciding default suppression or replacement.
 - Spring AI 2.0.0 documentation cannot be assumed to describe the current 1.1.4 runtime exactly; capability detection and supported-version tests are release requirements.

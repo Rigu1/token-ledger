@@ -89,7 +89,7 @@ This configuration describes the current starter path. The 30-day MVP will exten
 
 | Capability | Status | MVP decision |
 | --- | --- | --- |
-| Provider usage -> `TokenUsage` normalization | Basic implementation | Fix total/breakdown invariants first |
+| Provider usage -> `TokenUsage` normalization | Inclusive total/breakdown invariants implemented | Partition billable totals and details in cost calculation |
 | `BigDecimal` cost calculation and pricing registry | Basic implementation | Define precision, rounding, and missing-price policy |
 | `LedgerManager` event publication | Basic implementation | Add idempotent estimate/actual reconciliation contract |
 | Spring AI `LedgerAdvisor` | Basic implementation | Keep as an adapter; enforce preflight decisions before the call |
@@ -98,6 +98,8 @@ This configuration describes the current starter path. The 30-day MVP will exten
 | Heuristic token estimation and context check | Planned for 30-day MVP | Report `exact=false`; admission uses a documented safe upper bound |
 | Exact byte-level BPE and JMH optimization | Post-MVP | Keep the estimator SPI so it can be added without API churn |
 | Provider routing, retry, fallback, gateway runtime | Future | Build only after accounting correctness is demonstrated |
+
+`TokenUsage` now represents provider-reported input/output as inclusive totals and cached/reasoning values as validated details. Before the first `0.1.0` release, the former `Map<TokenType, Long>` record component was replaced by `inputTokens`, `outputTokens`, `TokenUsageDetails`, and `metadata`; consumers of the pre-release source API must migrate constructor calls accordingly.
 
 ## Modules
 

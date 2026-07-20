@@ -17,6 +17,8 @@ public enum TokenType {
 
     /**
      * 해당 토큰 타입이 입력(Prompt) 계열인지 확인합니다.
+     *
+     * @return 입력 계열이면 {@code true}
      */
     public boolean isPrompt() {
         return this == PROMPT || this == CACHED_PROMPT;
@@ -24,15 +26,10 @@ public enum TokenType {
 
     /**
      * 해당 토큰 타입이 출력(Completion) 계열인지 확인합니다.
+     *
+     * @return 출력 계열이면 {@code true}
      */
     public boolean isCompletion() {
-        return this == COMPLETION || this == CACHED_COMPLETION;
-    }
-
-    /**
-     * 해당 토큰 타입이 추론(Reasoning) 계열인지 확인합니다.
-     */
-    public boolean isReasoning(){
-        return this == REASONING;
+        return this == COMPLETION || this == REASONING || this == CACHED_COMPLETION;
     }
 }

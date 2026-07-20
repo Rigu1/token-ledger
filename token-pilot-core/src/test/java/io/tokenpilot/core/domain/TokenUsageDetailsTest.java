@@ -1,13 +1,12 @@
-package domain;
+package io.tokenpilot.core.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import io.tokenpilot.core.domain.TokenUsageDetails;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
-public class TokenUsageDetailTest {
+class TokenUsageDetailsTest {
 
     @Test
     @DisplayName("cached input 토큰은 음수일 수 없다")
