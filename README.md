@@ -1,14 +1,68 @@
 # Token Pilot
 
-Token Pilot is a lightweight Java/Spring library for tracking Spring AI token usage, calculating model cost, publishing Micrometer metrics, and enforcing budget policy.
+**Preflight control and post-call accounting for Java LLM services.**
 
-The intended user experience is one dependency plus `token-pilot.*` configuration:
+Token Pilot is evolving into a framework-independent Java control and accounting layer for LLM calls. The core is designed to estimate request size, check context and spend policies before a call, and reconcile provider-reported usage and cost afterward. Spring AI is the first optional adapter, not a required dependency of the product identity.
+
+> **Project status — 0.x:** post-call usage normalization, cost calculation, Micrometer publishing, basic budget evaluation, and Spring AI integration exist today. Conservative preflight estimation, context admission, atomic budget reservation, and reconciliation are the 30-day MVP target; they are not yet released capabilities.
+
+## Why Token Pilot
+
+Java teams can already call LLMs through Spring AI or provider SDKs. The remaining operational logic is often rebuilt inside each service.
+
+| Operational problem | Token Pilot responsibility |
+| --- | --- |
+| A request exceeds a model context window | Use a documented safe upper bound and reject before the provider call |
+| Concurrent requests overspend a shared budget | Reserve estimated spend atomically, then commit or release it |
+| Estimated and billed usage differ | Reconcile provider-reported usage and final cost |
+| Framework-specific types leak into policy code | Keep token, pricing, budget, and ledger contracts framework-independent |
+| Telemetry says what happened but cannot enforce policy | Add admission and accounting decisions without replacing standard traces |
+
+The product boundary is deliberately narrow:
+
+> Spring AI observes what happened. Token Pilot decides whether a call may proceed and how it is settled.
+
+Token Pilot benchmarks LiteLLM's operational model, but it is not a Java port of LiteLLM and does not target provider-count parity. A standalone LLM gateway is a later evolution built on the same core contracts.
+
+## Distribution Model
+
+Both entry paths are built from this repository and should share one release version. They are separate Maven artifacts, not separate editions or branches.
+
+| Entry path | Dependency | Spring AI required | Intended user |
+| --- | --- | --- | --- |
+| Core | `cloud.token-pilot:token-pilot-core:<version>` | No | Plain Java, custom framework adapters, future gateway runtime |
+| Spring AI starter | `cloud.token-pilot:token-pilot-starter:<version>` | Yes | Spring Boot and Spring AI applications |
+
+These are the two primary entry paths. Existing supporting artifacts such as `token-pilot-budget` and `token-pilot-micrometer` remain available for manual composition; the starter brings the supported Spring runtime graph together transitively.
+
+The repository currently uses the compatibility artifact name `token-pilot-starter`. `token-pilot-spring-ai-starter` is the clearer target name, but a rename must include an alias or deprecation decision before release documentation advertises it as available.
+
+Core-only usage:
 
 ```gradle
 dependencies {
-    implementation 'cloud.token-pilot:token-pilot-starter'
+    implementation 'cloud.token-pilot:token-pilot-core:<version>'
 }
 ```
+
+Current Spring AI convenience dependency:
+
+```gradle
+dependencies {
+    implementation 'cloud.token-pilot:token-pilot-starter:<version>'
+}
+```
+
+The dependency direction is one-way:
+
+```text
+Spring AI Starter -> Spring AI Adapter -> Token Pilot Core
+                                      \-> Budget / Metrics adapters
+
+Token Pilot Core -X-> Spring AI
+```
+
+## Current Configuration
 
 ```yaml
 token-pilot:
@@ -29,15 +83,21 @@ token-pilot:
     monthly-limit: 10.00
 ```
 
-## What It Does
+This configuration describes the current starter path. The 30-day MVP will extend it with explicit estimator, context-budget, pricing-miss, and reservation policies.
 
-- Normalizes AI token usage into `TokenUsage`.
-- Calculates model cost from `PricingPlan` using `BigDecimal`.
-- Records usage and cost through `LedgerManager`.
-- Publishes token and cost metrics through Micrometer.
-- Integrates with Spring AI `ChatClient` through `LedgerAdvisor`.
-- Supports basic budget evaluation with allow, warn, and block decisions.
-- Provides Spring Boot autoconfiguration through `token-pilot-starter`.
+## Capability Status
+
+| Capability | Status | MVP decision |
+| --- | --- | --- |
+| Provider usage -> `TokenUsage` normalization | Basic implementation | Fix total/breakdown invariants first |
+| `BigDecimal` cost calculation and pricing registry | Basic implementation | Define precision, rounding, and missing-price policy |
+| `LedgerManager` event publication | Basic implementation | Add idempotent estimate/actual reconciliation contract |
+| Spring AI `LedgerAdvisor` | Basic implementation | Keep as an adapter; enforce preflight decisions before the call |
+| Micrometer metrics | Basic implementation | Avoid duplicating Spring AI token/latency telemetry by default |
+| Budget evaluation | Basic, non-atomic implementation | Replace check-then-add with reserve/commit/release semantics |
+| Heuristic token estimation and context check | Planned for 30-day MVP | Report `exact=false`; admission uses a documented safe upper bound |
+| Exact byte-level BPE and JMH optimization | Post-MVP | Keep the estimator SPI so it can be added without API churn |
+| Provider routing, retry, fallback, gateway runtime | Future | Build only after accounting correctness is demonstrated |
 
 ## Modules
 
@@ -47,13 +107,30 @@ token-pilot:
 | `token-pilot-spring-ai` | Spring AI usage extraction and advisor integration | Basic implementation complete |
 | `token-pilot-micrometer` | Micrometer listener for token and cost metrics | Basic implementation complete |
 | `token-pilot-budget` | Budget state store and budget evaluator | Basic implementation complete |
+| `token-pilot-notification` | Budget events and notification de-duplication | Basic implementation complete |
 | `token-pilot-autoconfigure` | Spring Boot autoconfiguration and property binding | Basic implementation complete |
-| `token-pilot-starter` | Final user dependency bundle | Basic implementation complete |
+| `token-pilot-starter` | Current Spring AI convenience dependency | Basic implementation complete |
 | `token-pilot-sample-app` | Local starter verification app | Basic E2E complete |
+
+Planned tokenizer, model catalog, benchmark, routing, and gateway modules are roadmap items and are intentionally absent from this table.
+
+## Request Lifecycle Target
+
+```text
+request
+  -> estimate input tokens and a safe upper bound
+  -> check context window and reserved output
+  -> reserve a conservative cost bound
+  -> invoke provider through an optional adapter
+  -> read provider-reported usage
+  -> reconcile actual cost
+  -> commit/release reservation
+  -> publish ledger events and Token Pilot-specific metrics
+```
 
 ## Metrics
 
-Token Pilot publishes:
+The current Micrometer adapter publishes:
 
 - `ai.token.usage.total`
 - `ai.token.usage.distribution`
@@ -66,6 +143,10 @@ tenant_id
 ```
 
 Spring Boot actuator metrics such as `jvm_*`, `application_*`, and `http_server_*` only prove that Prometheus exposure is working. Token Pilot metrics appear after a ledger event is recorded.
+
+When Spring AI Observability is present, its standard latency, trace, and input/output/total token telemetry should be reused. Token Pilot-owned telemetry will focus on cost, preflight decisions, budget reservations, missing pricing, and estimate/actual reconciliation. See [Spring AI Observability와 Token Pilot의 차별화 경계](docs/SPRING_AI_OBSERVABILITY_DIFFERENTIATION.md).
+
+The repository currently compiles against Spring AI 1.1.4, while the boundary report also evaluates 2.0.0. The supported-version and metric-suppression policy is an explicit MVP decision and must be verified per supported version.
 
 ## Sample App
 
@@ -131,13 +212,16 @@ Sample deployment and local Docker helper infrastructure lives in the separate
 
 ### Maven Central Release
 
-Target release coordinates for the next Token Pilot release:
+The repository currently defaults to `0.0.1-SNAPSHOT`. The 30-day MVP release candidate is `0.1.0`; neither the version nor the proposed starter rename should be presented as published until external-consumer verification passes.
+
+Target release paths:
 
 ```text
-cloud.token-pilot:token-pilot-starter:0.0.1
+cloud.token-pilot:token-pilot-core:0.1.0
+cloud.token-pilot:token-pilot-starter:0.1.0
 ```
 
-After the renamed artifacts are published, consume the release from Maven Central like a normal dependency:
+After the artifacts are published, consume the required entry path from Maven Central:
 
 ```gradle
 repositories {
@@ -145,27 +229,27 @@ repositories {
 }
 
 dependencies {
-    implementation "cloud.token-pilot:token-pilot-starter:0.0.1"
+    implementation "cloud.token-pilot:token-pilot-starter:0.1.0"
 }
 ```
 
-Published artifact consumption should be verified from CI with a temporary consumer project after the renamed coordinates are available.
+Published artifact consumption should be verified from CI with a temporary consumer project after the `0.1.0` coordinates are available.
 
 Prepare a signed release build locally:
 
 ```bash
-./gradlew publishToMavenLocal -PprojectVersion=0.0.1
+./gradlew publishToMavenLocal -PprojectVersion=0.1.0
 ```
 
 Release-to-Central flow:
 
 ```bash
-./gradlew publishAllPublicationsToStagingRepository -PprojectVersion=0.0.1
-./gradlew jreleaserConfig -PprojectVersion=0.0.1
-./gradlew jreleaserDeploy -PprojectVersion=0.0.1
+./gradlew publishAllPublicationsToStagingRepository -PprojectVersion=0.1.0
+./gradlew jreleaserConfig -PprojectVersion=0.1.0
+./gradlew jreleaserDeploy -PprojectVersion=0.1.0
 ```
 
-The repository supports release-friendly version overrides with `-PprojectVersion=0.0.1`, signs published artifacts automatically when the signing key file properties are present, stages release artifacts into `build/staging-deploy`, and wires JReleaser to the Central Publisher Portal.
+The repository supports release-friendly version overrides, signs published artifacts automatically when the signing key file properties are present, stages release artifacts into `build/staging-deploy`, and wires JReleaser to the Central Publisher Portal.
 
 ### Snapshot Publishing
 
@@ -240,7 +324,7 @@ chmod 600 ~/.gradle/token-pilot-signing.asc
 
 ## Current Status
 
-The starter and autoconfigure path is implemented at a basic level:
+The existing baseline is usable for local integration experiments:
 
 - `token-pilot-starter` pulls in the runtime modules.
 - `token-pilot-autoconfigure` registers the core, Spring AI, Micrometer, and Budget beans conditionally.
@@ -250,10 +334,28 @@ The starter and autoconfigure path is implemented at a basic level:
 - Library modules publish through `maven-publish`.
 - Published artifact verification should move to CI with a temporary external consumer project.
 
-Remaining MVP work:
+The 30-day MVP is a correctness and control milestone, not a gateway milestone:
 
-- Validate remote snapshot publishing and CI credentials flow for GitHub Packages.
-- Add CI-based external consumer verification for Maven Central and snapshot coordinates.
+- Fix token usage, money precision, missing-pricing, and budget-blocking invariants.
+- Add a framework-independent UTF-8 heuristic estimator with an explicit non-exact result, scope, and safe upper bound.
+- Add versioned model/context/pricing metadata and `TokenBudget.check()`.
+- Introduce atomic budget reservation and estimate/actual reconciliation.
+- Integrate the new contracts through the optional Spring AI starter.
+- Publish Token Pilot-specific cost, preflight, budget, and reconciliation metrics.
+- Demonstrate context rejection, budget rejection, successful reconciliation, and plain-Java core use.
+- Validate snapshot/release consumption from an external project.
+
+Exact byte-level BPE, JMH optimization, provider routing, retry/fallback, and a standalone gateway are explicitly outside this MVP.
+
+## Documentation
+
+| Document | Purpose |
+| --- | --- |
+| [Documentation index](docs/README.md) | Document roles and status terminology |
+| [30-day MVP execution report](docs/30_DAY_MVP_REPORT.md) | Scope, four-week plan, deliverables, success criteria, and cutline |
+| [Evolution plan](docs/EVOLUTION_PLAN.md) | Long-term workstreams and gateway roadmap after the MVP |
+| [Spring AI Observability boundary](docs/SPRING_AI_OBSERVABILITY_DIFFERENTIATION.md) | Official-source analysis and the telemetry/control split |
+| [Agent guide](AGENTS.md) | Repository rules, architecture decisions, and verification commands |
 
 ## Development
 
