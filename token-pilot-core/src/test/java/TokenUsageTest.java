@@ -2,6 +2,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import io.tokenpilot.core.domain.TokenType;
 import io.tokenpilot.core.domain.TokenUsage;
+import io.tokenpilot.core.domain.TokenUsageDetails;
+import java.util.Map;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -20,5 +22,25 @@ public class TokenUsageTest {
         assertThat(usage.completionTokens()).isEqualTo(200);
         assertThat(usage.totalTokens()).isEqualTo(300);
         assertThat(usage.getCount(TokenType.REASONING)).isEqualTo(150);
+    }
+
+    @Test
+    @DisplayName("cache의 input이 중복되면 안된다.")
+    void shouldNotAddCachedInputTokensToInputTotalAgain() {
+        TokenUsage usage = new TokenUsage(
+                100,
+                200,
+                new TokenUsageDetails(
+                        40, // cachedInputTokens
+                        0,  // reasoningOutputTokens
+                        0   // cachedOutputTokens
+                ),
+                Map.of()
+        );
+
+        assertThat(usage.promptTokens()).isEqualTo(100);
+        assertThat(usage.completionTokens()).isEqualTo(200);
+        assertThat(usage.totalTokens()).isEqualTo(300);
+        assertThat(usage.getCount(TokenType.CACHED_PROMPT)).isEqualTo(40);
     }
 }

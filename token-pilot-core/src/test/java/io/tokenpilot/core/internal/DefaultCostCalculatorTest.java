@@ -4,6 +4,7 @@ import io.tokenpilot.core.domain.Cost;
 import io.tokenpilot.core.domain.PricingPlan;
 import io.tokenpilot.core.domain.TokenType;
 import io.tokenpilot.core.domain.TokenUsage;
+import io.tokenpilot.core.domain.TokenUsageDetails;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -43,11 +44,12 @@ class DefaultCostCalculatorTest {
         PricingPlan plan = new PricingPlan("o1-preview", rates, Cost.DEFAULT_CURRENCY);
 
         // Usage: Prompt 1000, Completion 500, Reasoning 1500 (Total 3000)
-        Map<TokenType, Long> counts = new EnumMap<>(TokenType.class);
-        counts.put(TokenType.PROMPT, 1000L);
-        counts.put(TokenType.COMPLETION, 500L);
-        counts.put(TokenType.REASONING, 1500L);
-        TokenUsage usage = new TokenUsage(counts, Map.of());
+        TokenUsage usage = new TokenUsage(
+                1000,
+                500,
+                new TokenUsageDetails(0, 1500, 0),
+                Map.of()
+        );
 
         // When
         Cost cost = calculator.calculate(usage, plan);

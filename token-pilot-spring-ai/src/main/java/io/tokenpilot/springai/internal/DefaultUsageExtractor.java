@@ -1,14 +1,13 @@
 package io.tokenpilot.springai.internal;
 
-import io.tokenpilot.core.domain.TokenType;
 import io.tokenpilot.core.domain.TokenUsage;
+import io.tokenpilot.core.domain.TokenUsageDetails;
 import io.tokenpilot.springai.UsageExtractor;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatResponse;
 
-import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -33,23 +32,20 @@ public class DefaultUsageExtractor implements UsageExtractor {
         ChatResponseMetadata metadata = chatResponse.getMetadata();
         Usage usage = metadata.getUsage();
         if (usage == null) {
-            return new TokenUsage(defaultCounts(), copyMetadata(metadata, null));
+            return new TokenUsage(0, 0, new TokenUsageDetails(0, 0, 0), copyMetadata(metadata, null));
         }
-
-        Map<TokenType, Long> counts = new EnumMap<>(TokenType.class);
 
         long prompt = (usage.getPromptTokens() != null) ? usage.getPromptTokens() : 0L;
         long completion = (usage.getCompletionTokens() != null) ? usage.getCompletionTokens() : 0L;
-        
-        counts.put(TokenType.PROMPT, prompt);
-        counts.put(TokenType.COMPLETION, completion);
 
         Long reasoning = extractReasoningTokens(metadata);
-        if (reasoning > 0) {
-            counts.put(TokenType.REASONING, reasoning);
-        }
 
-        return new TokenUsage(counts, copyMetadata(metadata, usage.getNativeUsage()));
+        return new TokenUsage(
+                prompt,
+                completion,
+                new TokenUsageDetails(0, reasoning, 0),
+                copyMetadata(metadata, usage.getNativeUsage())
+        );
     }
 
     private Long extractReasoningTokens(ChatResponseMetadata metadata) {
@@ -68,13 +64,6 @@ public class DefaultUsageExtractor implements UsageExtractor {
         }
 
         return 0L;
-    }
-
-    private Map<TokenType, Long> defaultCounts() {
-        Map<TokenType, Long> counts = new EnumMap<>(TokenType.class);
-        counts.put(TokenType.PROMPT, 0L);
-        counts.put(TokenType.COMPLETION, 0L);
-        return counts;
     }
 
     private Map<String, Object> copyMetadata(ChatResponseMetadata metadata, Object nativeUsage) {
