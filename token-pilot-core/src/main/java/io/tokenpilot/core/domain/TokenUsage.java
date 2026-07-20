@@ -3,6 +3,7 @@ package io.tokenpilot.core.domain;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.Map;
+import java.util.Map.Entry;
 
 /**
  * AI 모델 호출 시 발생하는 토큰 사용량 정보.
@@ -65,7 +66,10 @@ public record TokenUsage(
      * 전체 사용 토큰 수의 합계를 반환합니다.
      */
     public long totalTokens() {
-        return tokenCounts.values().stream().mapToLong(Long::longValue).sum();
+        return tokenCounts.entrySet().stream()
+                .filter(e -> !e.getKey().isReasoning())
+                .mapToLong(Entry::getValue)
+                .sum();
     }
 
     /**

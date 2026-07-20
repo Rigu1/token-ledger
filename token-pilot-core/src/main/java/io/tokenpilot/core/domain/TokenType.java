@@ -26,6 +26,13 @@ public enum TokenType {
      * 해당 토큰 타입이 출력(Completion) 계열인지 확인합니다.
      */
     public boolean isCompletion() {
-        return this == COMPLETION || this == REASONING || this == CACHED_COMPLETION;
+        return this == COMPLETION || this == CACHED_COMPLETION;
+    }
+
+    /**
+     * 해당 토큰 타입이 추론(Reasoning) 계열인지 확인합니다.
+     */
+    public boolean isReasoning(){
+        return this == REASONING;
     }
 }
