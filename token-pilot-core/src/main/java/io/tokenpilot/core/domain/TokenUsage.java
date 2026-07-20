@@ -2,6 +2,7 @@ package io.tokenpilot.core.domain;
 
 import java.util.Collections;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * AI 모델 호출 시 발생하는 토큰 사용량 정보.
@@ -20,6 +21,23 @@ public record TokenUsage(
 ) {
     public TokenUsage {
         metadata = (metadata != null) ? Collections.unmodifiableMap(metadata) : Map.of();
+
+        if(inputTokens<0){
+            throw new IllegalArgumentException(
+                    "inputTokens must be non-negative"
+            );
+        }
+
+        if (outputTokens < 0) {
+            throw new IllegalArgumentException(
+                    "outputTokens must be non-negative"
+            );
+        }
+
+        Objects.requireNonNull(
+                details,
+                "details must not be null"
+        );
     }
 
     /**
