@@ -2,11 +2,16 @@ package io.tokenpilot.core.internal;
 
 import io.tokenpilot.core.domain.Cost;
 import io.tokenpilot.core.domain.PricingPlan;
+import io.tokenpilot.core.domain.TokenType;
 import io.tokenpilot.core.domain.TokenUsage;
+import io.tokenpilot.core.domain.TokenUsageDetails;
+import io.tokenpilot.core.domain.UsageSource;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.util.Currency;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -27,5 +32,34 @@ class DefaultCostCalculatorTest {
 
         // Then: (1000 * 0.01 / 1000) + (2000 * 0.03 / 1000) = 0.01 + 0.06 = 0.07
         assertThat(cost.value()).isEqualByComparingTo("0.070000");
+    }
+
+    @Test
+    @DisplayName("포괄 총량을 배타적인 과금 구간으로 나누어 중복 없이 계산한다")
+    void calculateInclusiveTotalsWithoutDoubleChargingDetails() {
+        PricingPlan plan = new PricingPlan(
+                "provider-model",
+                Map.of(
+                        TokenType.PROMPT, new BigDecimal("0.01"),
+                        TokenType.CACHE_READ_PROMPT, new BigDecimal("0.002"),
+                        TokenType.CACHE_CREATION_PROMPT, new BigDecimal("0.0125"),
+                        TokenType.COMPLETION, new BigDecimal("0.03"),
+                        TokenType.REASONING, new BigDecimal("0.05")
+                ),
+                Currency.getInstance("USD")
+        );
+        TokenUsage usage = new TokenUsage(
+                1_000,
+                1_000,
+                new TokenUsageDetails(400L, 100L, 200L),
+                UsageSource.PROVIDER_REPORTED,
+                Map.of()
+        );
+
+        Cost cost = calculator.calculate(usage, plan);
+
+        // 500 normal input + 400 cache read + 100 cache creation
+        // 800 normal output + 200 reasoning output
+        assertThat(cost.value()).isEqualByComparingTo("0.041050");
     }
 }

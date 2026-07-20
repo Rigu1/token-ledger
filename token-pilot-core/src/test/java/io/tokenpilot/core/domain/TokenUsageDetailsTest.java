@@ -9,10 +9,18 @@ import org.junit.jupiter.api.Test;
 class TokenUsageDetailsTest {
 
     @Test
-    @DisplayName("cached input 토큰은 음수일 수 없다")
-    void shouldRejectNegativeCachedInputTokens() {
+    @DisplayName("cache read input 토큰은 음수일 수 없다")
+    void shouldRejectNegativeCacheReadInputTokens() {
         assertThatThrownBy(() ->
-                new TokenUsageDetails(-1, 0, 0)
+                new TokenUsageDetails(-1L, 0L, 0L)
+        ).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("cache creation input 토큰은 음수일 수 없다")
+    void shouldRejectNegativeCacheCreationInputTokens() {
+        assertThatThrownBy(() ->
+                new TokenUsageDetails(0L, -1L, 0L)
         ).isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -20,25 +28,21 @@ class TokenUsageDetailsTest {
     @DisplayName("reasoning output 토큰은 음수일 수 없다")
     void shouldRejectNegativeReasoningOutputTokens() {
         assertThatThrownBy(() ->
-                new TokenUsageDetails(0, -1, 0)
+                new TokenUsageDetails(0L, 0L, -1L)
         ).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
-    @DisplayName("cached output 토큰은 음수일 수 없다")
-    void shouldRejectNegativeCachedOutputTokens() {
-        assertThatThrownBy(() ->
-                new TokenUsageDetails(0, 0, -1)
-        ).isInstanceOf(IllegalArgumentException.class);
-    }
+    @DisplayName("미보고 세부량과 보고된 0을 구분한다")
+    void shouldDistinguishUnreportedDetailsFromReportedZero() {
+        TokenUsageDetails unreported = TokenUsageDetails.unreported();
+        TokenUsageDetails reportedZero = new TokenUsageDetails(0L, 0L, 0L);
 
-    @Test
-    @DisplayName("모든 세부 토큰은 0일 수 있다")
-    void shouldAllowZeroDetailTokens() {
-        TokenUsageDetails details = new TokenUsageDetails(0, 0, 0);
-
-        assertThat(details.cachedInputTokens()).isZero();
-        assertThat(details.reasoningOutputTokens()).isZero();
-        assertThat(details.cachedOutputTokens()).isZero();
+        assertThat(unreported.cacheReadInputTokens()).isNull();
+        assertThat(unreported.cacheCreationInputTokens()).isNull();
+        assertThat(unreported.reasoningOutputTokens()).isNull();
+        assertThat(reportedZero.cacheReadInputTokens()).isZero();
+        assertThat(reportedZero.cacheCreationInputTokens()).isZero();
+        assertThat(reportedZero.reasoningOutputTokens()).isZero();
     }
 }

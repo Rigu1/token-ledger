@@ -2,6 +2,8 @@ package io.tokenpilot.springai.internal;
 
 import io.tokenpilot.core.domain.TokenType;
 import io.tokenpilot.core.domain.TokenUsage;
+import io.tokenpilot.core.domain.TokenUsageDetails;
+import io.tokenpilot.core.domain.UsageSource;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClientResponse;
@@ -40,6 +42,8 @@ class DefaultUsageExtractorTest {
 
         assertThat(result.getCount(TokenType.PROMPT)).isEqualTo(100L);
         assertThat(result.getCount(TokenType.COMPLETION)).isEqualTo(200L);
+        assertThat(result.details()).isEqualTo(TokenUsageDetails.unreported());
+        assertThat(result.source()).isEqualTo(UsageSource.PROVIDER_REPORTED);
         assertThat(result.metadata()).containsEntry("nativeUsage", Map.of("provider", "openai"));
     }
 
@@ -63,6 +67,74 @@ class DefaultUsageExtractorTest {
         assertThat(result.getCount(TokenType.PROMPT)).isEqualTo(100L);
         assertThat(result.getCount(TokenType.COMPLETION)).isEqualTo(200L);
         assertThat(result.getCount(TokenType.REASONING)).isEqualTo(150L);
+        assertThat(result.details().cacheReadInputTokens()).isNull();
+        assertThat(result.details().cacheCreationInputTokens()).isNull();
+    }
+
+    @Test
+    @DisplayName("OpenAI의 cached input과 reasoning breakdown을 포괄 총량과 분리한다")
+    void extractOpenAiUsageBreakdown() {
+        Usage usage = mock(Usage.class);
+        when(usage.getPromptTokens()).thenReturn(100);
+        when(usage.getCompletionTokens()).thenReturn(200);
+
+        ChatResponseMetadata metadata = ChatResponseMetadata.builder()
+                .usage(usage)
+                .keyValue("prompt_tokens_details", Map.of("cached_tokens", 40))
+                .keyValue("completion_tokens_details", Map.of("reasoning_tokens", 150))
+                .build();
+
+        TokenUsage result = extractor.extract(responseWith(metadata));
+
+        assertThat(result.inputTokens()).isEqualTo(100);
+        assertThat(result.outputTokens()).isEqualTo(200);
+        assertThat(result.details()).isEqualTo(new TokenUsageDetails(40L, null, 150L));
+        assertThat(result.source()).isEqualTo(UsageSource.PROVIDER_REPORTED);
+    }
+
+    @Test
+    @DisplayName("Anthropic의 일반 입력과 cache read/create를 포괄 입력 총량으로 정규화한다")
+    void normalizeAnthropicInputUsage() {
+        AnthropicNativeUsage nativeUsage = new AnthropicNativeUsage(50, 100, 25, 60);
+        Usage usage = mock(Usage.class);
+        when(usage.getPromptTokens()).thenReturn(50);
+        when(usage.getCompletionTokens()).thenReturn(60);
+        when(usage.getNativeUsage()).thenReturn(nativeUsage);
+        ChatResponseMetadata metadata = ChatResponseMetadata.builder()
+                .usage(usage)
+                .build();
+
+        TokenUsage result = extractor.extract(responseWith(metadata));
+
+        assertThat(result.inputTokens()).isEqualTo(175);
+        assertThat(result.outputTokens()).isEqualTo(60);
+        assertThat(result.details()).isEqualTo(new TokenUsageDetails(100L, 25L, null));
+        assertThat(result.source()).isEqualTo(UsageSource.PROVIDER_DERIVED);
+    }
+
+    @Test
+    @DisplayName("Gemini의 candidates와 thoughts를 포괄 출력 총량으로 정규화한다")
+    void normalizeGeminiOutputUsage() {
+        Map<String, Object> nativeUsage = Map.of(
+                "promptTokenCount", 100,
+                "cachedContentTokenCount", 40,
+                "candidatesTokenCount", 80,
+                "thoughtsTokenCount", 20
+        );
+        Usage usage = mock(Usage.class);
+        when(usage.getPromptTokens()).thenReturn(100);
+        when(usage.getCompletionTokens()).thenReturn(80);
+        when(usage.getNativeUsage()).thenReturn(nativeUsage);
+        ChatResponseMetadata metadata = ChatResponseMetadata.builder()
+                .usage(usage)
+                .build();
+
+        TokenUsage result = extractor.extract(responseWith(metadata));
+
+        assertThat(result.inputTokens()).isEqualTo(100);
+        assertThat(result.outputTokens()).isEqualTo(100);
+        assertThat(result.details()).isEqualTo(new TokenUsageDetails(40L, null, 20L));
+        assertThat(result.source()).isEqualTo(UsageSource.PROVIDER_DERIVED);
     }
 
     @Test
@@ -72,6 +144,7 @@ class DefaultUsageExtractorTest {
 
         assertThat(result.promptTokens()).isZero();
         assertThat(result.completionTokens()).isZero();
+        assertThat(result.source()).isEqualTo(UsageSource.UNAVAILABLE);
         assertThat(result.metadata()).isEmpty();
     }
 
@@ -86,6 +159,7 @@ class DefaultUsageExtractorTest {
 
         assertThat(result.promptTokens()).isZero();
         assertThat(result.completionTokens()).isZero();
+        assertThat(result.source()).isEqualTo(UsageSource.UNAVAILABLE);
         assertThat(result.metadata()).isEmpty();
     }
 
@@ -102,6 +176,23 @@ class DefaultUsageExtractorTest {
 
         assertThat(result.promptTokens()).isZero();
         assertThat(result.completionTokens()).isZero();
+        assertThat(result.source()).isEqualTo(UsageSource.UNAVAILABLE);
         assertThat(result.metadata()).containsEntry("model_region", "ap-northeast-2");
+    }
+
+    private ChatClientResponse responseWith(ChatResponseMetadata metadata) {
+        ChatResponse chatResponse = new ChatResponse(
+                List.of(new Generation(new org.springframework.ai.chat.messages.AssistantMessage("test"))),
+                metadata
+        );
+        return new ChatClientResponse(chatResponse, Map.of());
+    }
+
+    private record AnthropicNativeUsage(
+            Integer inputTokens,
+            Integer cacheReadInputTokens,
+            Integer cacheCreationInputTokens,
+            Integer outputTokens
+    ) {
     }
 }

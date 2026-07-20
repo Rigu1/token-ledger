@@ -317,7 +317,8 @@ The active checklist is in `docs/30_DAY_MVP_REPORT.md`; detailed long-term works
 ## Known Risks
 
 - `core.internal` implementation classes are package-private by design. Cross-module construction should continue through public factory/configuration APIs.
-- `TokenUsage` now enforces inclusive input/output totals and validated cached/reasoning details. `DefaultCostCalculator` still iterates totals and details independently, so billable partitioning remains required before expanding pricing.
+- `TokenUsage` now enforces normalized inclusive totals, optional cache-read/cache-creation/reasoning details, and explicit usage provenance. `DefaultCostCalculator` partitions overlapping totals into disjoint billable amounts before applying rates.
+- Spring AI usage extraction converts map/JSON-compatible native usage objects into the normalized core model. Real-provider compatibility fixtures remain required because provider and Spring AI usage shapes can change independently.
 - Current budget flow is check-then-add, is not an atomic reservation, and may not enforce `BLOCK` before provider invocation.
 - Current Micrometer `ai.token.*` metrics may duplicate Spring AI Observability; preserve compatibility while deciding default suppression or replacement.
 - Spring AI 2.0.0 documentation cannot be assumed to describe the current 1.1.4 runtime exactly; capability detection and supported-version tests are release requirements.
@@ -382,6 +383,8 @@ Stage and deploy a Central release:
 
 ### 2026-07-20
 
+- Replaced generic cached input/cached output details with optional cache-read input, cache-creation input, and reasoning-output breakdowns; `null` now means unreported and `0` means reported zero.
+- Added `UsageSource`, provider-specific total normalization in the Spring AI adapter, and disjoint cost partitioning to prevent details from being charged twice.
 - Positioned Token Pilot as a framework-independent Java LLM control and accounting core with Spring AI as an optional adapter.
 - Chose to reuse Spring AI Observability for standard latency, trace, and token telemetry while keeping Token Pilot metrics focused on cost, policy, budget, and reconciliation.
 - Kept the existing starter as a Spring AI convenience distribution rather than the sole product identity.

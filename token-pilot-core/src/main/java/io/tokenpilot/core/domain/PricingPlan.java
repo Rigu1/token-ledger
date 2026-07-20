@@ -70,8 +70,7 @@ public record PricingPlan(
     /**
      * 특정 토큰 타입의 단가를 가져옵니다. 없을 시 계층 구조에 따라 대체값을 반환합니다.
      * REASONING -> COMPLETION
-     * CACHED_PROMPT -> PROMPT
-     * CACHED_COMPLETION -> COMPLETION
+     * CACHE_READ_PROMPT, CACHE_CREATION_PROMPT -> PROMPT
      */
     public BigDecimal getRate(TokenType type) {
         if (rates.containsKey(type)) {
@@ -80,8 +79,9 @@ public record PricingPlan(
 
         // Fallback Logic
         return switch (type) {
-            case REASONING, CACHED_COMPLETION -> rates.getOrDefault(TokenType.COMPLETION, BigDecimal.ZERO);
-            case CACHED_PROMPT -> rates.getOrDefault(TokenType.PROMPT, BigDecimal.ZERO);
+            case REASONING -> rates.getOrDefault(TokenType.COMPLETION, BigDecimal.ZERO);
+            case CACHE_READ_PROMPT, CACHE_CREATION_PROMPT ->
+                    rates.getOrDefault(TokenType.PROMPT, BigDecimal.ZERO);
             default -> rates.getOrDefault(type, BigDecimal.ZERO);
         };
     }
