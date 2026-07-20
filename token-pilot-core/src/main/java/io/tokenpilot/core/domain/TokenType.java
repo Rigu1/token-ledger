@@ -10,22 +10,26 @@ public enum TokenType {
     COMPLETION,
     /** 추론 (Reasoning) - 주로 출력 계열 */
     REASONING,
-    /** 캐시된 입력 (Cached Prompt) */
-    CACHED_PROMPT,
-    /** 캐시된 출력 (Cached Completion) */
-    CACHED_COMPLETION;
+    /** 캐시에서 읽은 입력 (Cache Read Prompt) */
+    CACHE_READ_PROMPT,
+    /** 캐시에 새로 저장한 입력 (Cache Creation Prompt) */
+    CACHE_CREATION_PROMPT;
 
     /**
      * 해당 토큰 타입이 입력(Prompt) 계열인지 확인합니다.
+     *
+     * @return 입력 계열이면 {@code true}
      */
     public boolean isPrompt() {
-        return this == PROMPT || this == CACHED_PROMPT;
+        return this == PROMPT || this == CACHE_READ_PROMPT || this == CACHE_CREATION_PROMPT;
     }
 
     /**
      * 해당 토큰 타입이 출력(Completion) 계열인지 확인합니다.
+     *
+     * @return 출력 계열이면 {@code true}
      */
     public boolean isCompletion() {
-        return this == COMPLETION || this == REASONING || this == CACHED_COMPLETION;
+        return this == COMPLETION || this == REASONING;
     }
 }

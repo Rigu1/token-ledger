@@ -5,8 +5,9 @@ import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tag;
 import io.micrometer.core.instrument.Tags;
-import io.tokenpilot.core.domain.CostRecordedEvent;
 import io.tokenpilot.core.LedgerListener;
+import io.tokenpilot.core.domain.CostRecordedEvent;
+import io.tokenpilot.core.domain.TokenType;
 import io.tokenpilot.micrometer.MetricsOptions;
 
 import java.util.Map;
@@ -43,7 +44,8 @@ public class MicroCostMetricsPublisher implements LedgerListener {
 
         final Tags finalTags = commonTags;
 
-        event.usage().tokenCounts().forEach(((tokenType, count) -> {
+        for (TokenType tokenType : TokenType.values()) {
+            long count = event.usage().getCount(tokenType);
             if (count > 0) {
                 String typeName = tokenType.name().toLowerCase();
                 DistributionSummary.builder("ai.token.usage.distribution")
@@ -51,7 +53,7 @@ public class MicroCostMetricsPublisher implements LedgerListener {
                         .baseUnit("tokens")
                         .tags(finalTags.and("token_type", typeName))
                         .register(meterRegistry)
-                        .record(count.doubleValue());
+                        .record(count);
                 Counter.builder("ai.token.usage.total")
                         .description("Total number of AI tokens recorded")
                         .baseUnit("tokens")
@@ -59,7 +61,7 @@ public class MicroCostMetricsPublisher implements LedgerListener {
                         .register(meterRegistry)
                         .increment(count);
             }
-        }));
+        }
         Counter.builder("ai.token.cost.total")
                 .description("Total estimated AI token cost")
                 .baseUnit("currency")

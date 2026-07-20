@@ -89,8 +89,8 @@ This configuration describes the current starter path. The 30-day MVP will exten
 
 | Capability | Status | MVP decision |
 | --- | --- | --- |
-| Provider usage -> `TokenUsage` normalization | Basic implementation | Fix total/breakdown invariants first |
-| `BigDecimal` cost calculation and pricing registry | Basic implementation | Define precision, rounding, and missing-price policy |
+| Provider usage -> `TokenUsage` normalization | Inclusive totals, optional cache/reasoning breakdown, and source implemented | Add supported-provider compatibility fixtures |
+| `BigDecimal` cost calculation and pricing registry | Disjoint billable partition implemented | Define precision, rounding, and missing-price policy |
 | `LedgerManager` event publication | Basic implementation | Add idempotent estimate/actual reconciliation contract |
 | Spring AI `LedgerAdvisor` | Basic implementation | Keep as an adapter; enforce preflight decisions before the call |
 | Micrometer metrics | Basic implementation | Avoid duplicating Spring AI token/latency telemetry by default |
@@ -98,6 +98,10 @@ This configuration describes the current starter path. The 30-day MVP will exten
 | Heuristic token estimation and context check | Planned for 30-day MVP | Report `exact=false`; admission uses a documented safe upper bound |
 | Exact byte-level BPE and JMH optimization | Post-MVP | Keep the estimator SPI so it can be added without API churn |
 | Provider routing, retry, fallback, gateway runtime | Future | Build only after accounting correctness is demonstrated |
+
+`TokenUsage` represents normalized input/output as inclusive totals. `TokenUsageDetails` stores optional cache-read input, cache-creation input, and reasoning-output breakdowns; `null` means the provider did not report the value, while `0` means it reported zero usage. `UsageSource` distinguishes reported, provider-derived, locally calculated, estimated, and unavailable values. Cost calculation partitions these overlapping totals into disjoint billable amounts before applying rates, so details are never charged twice.
+
+Before the first `0.1.0` release, the former `Map<TokenType, Long>` record component was replaced by `inputTokens`, `outputTokens`, `TokenUsageDetails`, `UsageSource`, and `metadata`. `CACHED_PROMPT`/`CACHED_COMPLETION` were replaced by `CACHE_READ_PROMPT`/`CACHE_CREATION_PROMPT`; consumers of the pre-release source API must migrate constructor calls and pricing keys accordingly.
 
 ## Modules
 
