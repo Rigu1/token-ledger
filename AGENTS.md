@@ -4,7 +4,7 @@
 
 Token Pilot is evolving from a Spring AI usage-tracking starter into a framework-independent Java LLM control and accounting core with optional framework and observability adapters.
 
-Current truth: post-call usage normalization, cost calculation, ledger events, Micrometer publishing, basic non-atomic budget evaluation, Spring AI integration, and starter autoconfiguration are implemented. Preflight estimation, context admission, atomic reservation, and estimate/actual reconciliation are 30-day MVP targets, not current capabilities.
+Current truth: post-call usage normalization, cost calculation, ledger events, Micrometer publishing, Clock-based monthly budget windows, basic non-atomic budget evaluation, Spring AI integration, and starter autoconfiguration are implemented. Preflight estimation, context admission, atomic reservation, and estimate/actual reconciliation are 30-day MVP targets, not current capabilities.
 
 Distribution direction: publish a framework-independent core and an optional Spring AI convenience starter from the same repository and release train. The existing starter artifact is `token-pilot-starter`; `token-pilot-spring-ai-starter` is only a target name until a compatibility ADR and module change land.
 
@@ -74,7 +74,7 @@ Token Pilot의 제품 포지션은 framework-independent Java LLM control and ac
 | `token-pilot-core` | Basic implementation complete | Domain records, pricing, calculator, registry, ledger manager |
 | `token-pilot-spring-ai` | Basic implementation complete | `UsageExtractor`, `LedgerAdvisor`, response usage recording |
 | `token-pilot-micrometer` | Basic implementation complete | `MetricsOptions`, tag whitelist, and metric metadata exist; metric ownership must be narrowed |
-| `token-pilot-budget` | Basic non-atomic implementation | Needs BLOCK enforcement, window semantics, reservation, idempotency, and reconciliation |
+| `token-pilot-budget` | Basic non-atomic implementation | Typed monthly keys and Clock/ZoneId windows implemented; needs BLOCK enforcement, reservation, idempotency, and reconciliation |
 | `token-pilot-notification` | Basic implementation complete | Event API and deduplication exist; not yet connected to the full advisor/budget lifecycle |
 | `token-pilot-autoconfigure` | Basic implementation complete | Bean registration, property binding, pricing/budget/notification wiring, and ChatClient customizer implemented |
 | `token-pilot-starter` | Basic implementation complete | Thin final user entrypoint that brings runtime modules together |
@@ -233,7 +233,7 @@ class MailBudgetNotificationHandler implements BudgetNotificationHandler {
 
 - `BudgetNotificationHandler` 빈이 없으면 `BudgetNotificationService`는 등록되지 않는다 (no-op).
 - `token-pilot.notification.enabled=true` 설정 시에만 notification 빈이 등록된다.
-- 알림 중복 방지는 `(targetId, budgetWindow)` 조합으로 처리된다.
+- 알림 중복 방지는 evaluator가 확정한 `BudgetKey(policyId, targetType, targetId, window)`로 처리된다.
 - 같은 window 안에서는 낮거나 같은 threshold 재발송이 방지된다.
 - 새 window에서는 50/80/100% 알림이 다시 가능하다.
 
@@ -256,7 +256,13 @@ token-pilot:
       - model
   budget:
     enabled: false
+    policy-id: default-monthly
+    target-type: tenant
+    target-tag-key: tenant_id
+    # fallback-target-id: shared
     monthly-limit: 10.00
+    currency: USD
+    zone-id: UTC
   notification:
     enabled: false
 ```
@@ -380,6 +386,11 @@ Stage and deploy a Central release:
 ```
 
 ## Update History
+
+### 2026-07-22
+
+- Added immutable monthly `BudgetKey`/`BudgetWindow` identity resolved from an injected `Clock` and configured `ZoneId`.
+- Made budget policy identity, target fallback, limit, and currency explicit, and propagated the resolved key through state updates and notifications.
 
 ### 2026-07-20
 

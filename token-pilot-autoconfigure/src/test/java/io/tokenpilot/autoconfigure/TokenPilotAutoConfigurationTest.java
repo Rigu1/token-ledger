@@ -4,9 +4,11 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.tokenpilot.budget.BudgetDecision;
 import io.tokenpilot.budget.BudgetEvaluator;
+import io.tokenpilot.budget.BudgetKey;
 import io.tokenpilot.budget.BudgetState;
 import io.tokenpilot.budget.BudgetStateStore;
 import io.tokenpilot.budget.BudgetThreshold;
+import io.tokenpilot.budget.BudgetWindow;
 import io.tokenpilot.core.CostCalculator;
 import io.tokenpilot.core.LedgerManager;
 import io.tokenpilot.core.PricingProvider;
@@ -27,12 +29,17 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.advisor.api.AdvisorChain;
+import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.Currency;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
@@ -188,6 +195,49 @@ class TokenPilotAutoConfigurationTest {
     }
 
     @Test
+    @DisplayName("Budget 빈은 사용자 Clock 기준의 월별 window를 공유해야 한다")
+    void shouldUseUserClockForMonthlyBudgetWindow() {
+        this.contextRunner
+            .withUserConfiguration(FixedClockConfiguration.class)
+            .withPropertyValues(
+                "token-pilot.budget.enabled=true",
+                "token-pilot.budget.monthly-limit=100.00",
+                "token-pilot.budget.zone-id=Asia/Seoul"
+            )
+            .run(context -> {
+                BudgetStateStore store = context.getBean(BudgetStateStore.class);
+                BudgetEvaluator evaluator = context.getBean(BudgetEvaluator.class);
+                Map<String, String> tags = Map.of("tenant_id", "tenant-clock");
+                BudgetDecision initial = evaluator.evaluate(tags);
+                BudgetKey july = new BudgetKey(
+                    initial.key().policyId(),
+                    initial.key().targetType(),
+                    initial.key().targetId(),
+                    BudgetWindow.parse("2026-07")
+                );
+
+                store.addCost(
+                    july,
+                    initial.limit(),
+                    initial.currency(),
+                    new Cost(new BigDecimal("100.00"), initial.currency())
+                );
+                store.addCost(
+                    initial.key(),
+                    initial.limit(),
+                    initial.currency(),
+                    new Cost(new BigDecimal("50.00"), initial.currency())
+                );
+
+                BudgetDecision decision = evaluator.evaluate(tags);
+
+                assertThat(decision.key().window()).isEqualTo(BudgetWindow.parse("2026-08"));
+                assertThat(decision.threshold()).isEqualTo(BudgetThreshold.HALF);
+                assertThat(decision.currentUsage()).isEqualByComparingTo("50.00");
+            });
+    }
+
+    @Test
     @DisplayName("Budget가 활성화되면 LedgerAdvisor가 BudgetEvaluator를 사용해야 한다")
     void shouldWireBudgetEvaluatorIntoLedgerAdvisorWhenBudgetEnabled() {
         this.contextRunner
@@ -197,8 +247,10 @@ class TokenPilotAutoConfigurationTest {
                 LedgerAdvisor advisor = context.getBean(LedgerAdvisor.class);
                 RecordingBudgetEvaluator evaluator = context.getBean(RecordingBudgetEvaluator.class);
 
-                ChatClientRequest request = mock(ChatClientRequest.class);
-                when(request.context()).thenReturn(Map.of("tenant_id", "tenant-abc"));
+                ChatClientRequest request = new ChatClientRequest(
+                    new Prompt("test"),
+                    Map.of("tenant_id", "tenant-abc")
+                );
 
                 advisor.before(request, mock(AdvisorChain.class));
 
@@ -338,6 +390,14 @@ class TokenPilotAutoConfigurationTest {
         }
     }
 
+    @Configuration(proxyBeanMethods = false)
+    static class FixedClockConfiguration {
+        @Bean
+        public Clock clock() {
+            return Clock.fixed(Instant.parse("2026-07-31T15:30:00Z"), ZoneOffset.UTC);
+        }
+    }
+
     static class RecordingBudgetEvaluator implements BudgetEvaluator {
         private int evaluateCalls;
         private Map<String, String> lastTags = Map.of();
@@ -346,7 +406,20 @@ class TokenPilotAutoConfigurationTest {
         public BudgetDecision evaluate(Map<String, String> tags) {
             this.evaluateCalls++;
             this.lastTags = tags;
-            return new BudgetDecision(BudgetState.ALLOW, BudgetThreshold.NONE, "allowed", BigDecimal.ZERO, BigDecimal.TEN);
+            return new BudgetDecision(
+                new BudgetKey(
+                    "policy-a",
+                    "tenant",
+                    tags.get("tenant_id"),
+                    BudgetWindow.parse("2026-07")
+                ),
+                BudgetState.ALLOW,
+                BudgetThreshold.NONE,
+                "allowed",
+                BigDecimal.ZERO,
+                BigDecimal.TEN,
+                Currency.getInstance("USD")
+            );
         }
 
         @Override

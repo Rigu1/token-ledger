@@ -2,8 +2,11 @@ package io.tokenpilot.springai.internal;
 
 import io.tokenpilot.budget.BudgetDecision;
 import io.tokenpilot.budget.BudgetEvaluator;
+import io.tokenpilot.budget.BudgetKey;
 import io.tokenpilot.budget.BudgetState;
 import io.tokenpilot.budget.BudgetStateStore;
+import io.tokenpilot.budget.BudgetThreshold;
+import io.tokenpilot.budget.BudgetWindow;
 import io.tokenpilot.core.*;
 import io.tokenpilot.core.domain.*;
 import io.tokenpilot.springai.LedgerAdvisor;
@@ -16,6 +19,7 @@ import org.springframework.ai.chat.client.advisor.api.AdvisorChain;
 import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
+import org.springframework.ai.chat.prompt.Prompt;
 
 import java.math.BigDecimal;
 import java.util.Currency;
@@ -62,6 +66,7 @@ class DefaultLedgerAdvisorTest {
     void recordBudgetAfterAIResponse() {
         LedgerManager ledgerManager = mock(LedgerManager.class);
         UsageExtractor extractor = mock(UsageExtractor.class);
+        BudgetEvaluator budgetEvaluator = mock(BudgetEvaluator.class);
         BudgetStateStore budgetStateStore = mock(BudgetStateStore.class);
         CostCalculator costCalculator = mock(CostCalculator.class);
         PricingRegistry pricingRegistry = mock(PricingRegistry.class);
@@ -69,24 +74,33 @@ class DefaultLedgerAdvisorTest {
         TokenUsage mockUsage = TokenUsage.from(100, 200);
         PricingPlan mockPlan = new PricingPlan("gpt-4o", new BigDecimal("0.01"), new BigDecimal("0.03"), Currency.getInstance("USD"));
         Cost mockCost = new Cost(new BigDecimal("0.5"), Currency.getInstance("USD"));
+        BudgetDecision budgetDecision = decision();
 
         when(extractor.extract(any())).thenReturn(mockUsage);
         when(pricingRegistry.getPlan("gpt-4o")).thenReturn(Optional.of(mockPlan));
         when(costCalculator.calculate(mockUsage, mockPlan)).thenReturn(mockCost);
+        when(budgetEvaluator.evaluate(anyMap())).thenReturn(budgetDecision);
 
         DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(ledgerManager, extractor, 
-                null, budgetStateStore, costCalculator, pricingRegistry);
+                budgetEvaluator, budgetStateStore, costCalculator, pricingRegistry);
+
+        ChatClientRequest request = new ChatClientRequest(
+                new Prompt("test"),
+                Map.of("tenant_id", "tenant-abc")
+        );
+        ChatClientRequest resolvedRequest = advisor.before(request, mock(AdvisorChain.class));
 
         ChatResponseMetadata metadata = ChatResponseMetadata.builder().model("gpt-4o").build();
         ChatResponse chatResponse = new ChatResponse(List.of(new Generation(new org.springframework.ai.chat.messages.AssistantMessage("test"))), metadata);
-        Map<String, Object> context = Map.of("tenant_id", "tenant-abc");
-        ChatClientResponse response = new ChatClientResponse(chatResponse, context);
+        ChatClientResponse response = new ChatClientResponse(chatResponse, resolvedRequest.context());
 
         advisor.after(response, mock(AdvisorChain.class));
 
         verify(budgetStateStore, times(1)).addCost(
-                argThat(tags -> tags.get("tenant_id").equals("tenant-abc")),
-                argThat(amount -> amount.compareTo(new BigDecimal("0.5")) == 0)
+                same(budgetDecision.key()),
+                same(budgetDecision.limit()),
+                same(budgetDecision.currency()),
+                same(mockCost)
         );
     }
 
@@ -94,18 +108,23 @@ class DefaultLedgerAdvisorTest {
     @DisplayName("AI 호출 전 BudgetEvaluator를 통해 예산을 체크해야 한다")
     void checkBudgetBeforeAIRequest() {
         BudgetEvaluator budgetEvaluator = mock(BudgetEvaluator.class);
+        BudgetDecision decision = decision();
+        when(budgetEvaluator.evaluate(anyMap())).thenReturn(decision);
         DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(mock(LedgerManager.class), mock(UsageExtractor.class),
                 budgetEvaluator, null, null, null);
 
-        ChatClientRequest request = mock(ChatClientRequest.class);
-        Map<String, Object> context = Map.of("tenant_id", "tenant-abc");
-        when(request.context()).thenReturn(context);
+        ChatClientRequest request = new ChatClientRequest(
+                new Prompt("test"),
+                Map.of("tenant_id", "tenant-abc")
+        );
 
-        advisor.before(request, mock(AdvisorChain.class));
+        ChatClientRequest resolvedRequest = advisor.before(request, mock(AdvisorChain.class));
 
         verify(budgetEvaluator, times(1)).evaluate(
                 argThat(tags -> tags.get("tenant_id").equals("tenant-abc"))
         );
+        assertThat(resolvedRequest.context().get(DefaultLedgerAdvisor.BUDGET_DECISION_CONTEXT))
+                .isSameAs(decision);
     }
 
     @Test
@@ -115,5 +134,22 @@ class DefaultLedgerAdvisorTest {
 
         assertThat(advisor.getName()).isEqualTo("LedgerAdvisor");
         assertThat(advisor.getOrder()).isEqualTo(0);
+    }
+
+    private static BudgetDecision decision() {
+        return new BudgetDecision(
+                new BudgetKey(
+                        "policy-a",
+                        "tenant",
+                        "tenant-abc",
+                        BudgetWindow.parse("2026-07")
+                ),
+                BudgetState.ALLOW,
+                BudgetThreshold.NONE,
+                "allowed",
+                BigDecimal.ZERO,
+                new BigDecimal("100.00"),
+                Currency.getInstance("USD")
+        );
     }
 }

@@ -1,5 +1,6 @@
 package io.tokenpilot.notification;
 
+import io.tokenpilot.budget.BudgetKey;
 import io.tokenpilot.budget.BudgetThreshold;
 
 import java.util.Map;
@@ -10,29 +11,18 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class InMemoryNotificationStateStore implements NotificationStateStore {
 
-  private final Map<String, BudgetThreshold> store = new ConcurrentHashMap<>();
-
-  private String key(String targetId, String window) {
-    return targetId + ":" + window;
-  }
+  private final Map<BudgetKey, BudgetThreshold> store = new ConcurrentHashMap<>();
 
   @Override
-  public BudgetThreshold getLastNotifiedThreshold(
-      String targetId,
-      String budgetWindow
-  ) {
-    return store.getOrDefault(
-        key(targetId, budgetWindow),
-        BudgetThreshold.NONE
-    );
+  public BudgetThreshold getLastNotifiedThreshold(BudgetKey key) {
+    return store.getOrDefault(key, BudgetThreshold.NONE);
   }
 
   @Override
   public void updateLastNotifiedThreshold(
-      String targetId,
-      String budgetWindow,
+      BudgetKey key,
       BudgetThreshold threshold
   ) {
-    store.put(key(targetId, budgetWindow), threshold);
+    store.put(key, threshold);
   }
 }

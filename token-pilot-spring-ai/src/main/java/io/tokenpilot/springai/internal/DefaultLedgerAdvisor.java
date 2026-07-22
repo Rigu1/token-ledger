@@ -1,5 +1,6 @@
 package io.tokenpilot.springai.internal;
 
+import io.tokenpilot.budget.BudgetDecision;
 import io.tokenpilot.budget.BudgetEvaluator;
 import io.tokenpilot.budget.BudgetStateStore;
 import io.tokenpilot.core.*;
@@ -22,6 +23,8 @@ import java.util.Optional;
  * 호출 성공 시 {@link BudgetStateStore}에 비용을 누적합니다.
  */
 public class DefaultLedgerAdvisor implements LedgerAdvisor {
+
+    static final String BUDGET_DECISION_CONTEXT = "tokenpilot.budget.decision";
 
     private final LedgerManager ledgerManager;
     private final UsageExtractor usageExtractor;
@@ -49,7 +52,10 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
     public ChatClientRequest before(ChatClientRequest request, AdvisorChain chain) {
         if (budgetEvaluator != null) {
             Map<String, String> tags = extractTagsFromRequest(request);
-            budgetEvaluator.evaluate(tags);
+            BudgetDecision decision = budgetEvaluator.evaluate(tags);
+            return request.mutate()
+                          .context(BUDGET_DECISION_CONTEXT, decision)
+                          .build();
         }
         return request;
     }
@@ -68,7 +74,13 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
             Optional<PricingPlan> plan = pricingRegistry.getPlan(modelId);
             if (plan.isPresent()) {
                 Cost cost = costCalculator.calculate(usage, plan.get());
-                budgetStateStore.addCost(tags, cost.value());
+                BudgetDecision decision = extractBudgetDecision(response);
+                budgetStateStore.addCost(
+                    decision.key(),
+                    decision.limit(),
+                    decision.currency(),
+                    cost
+                );
             }
         }
 
@@ -98,6 +110,15 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
         }
 
         return tags;
+    }
+
+    private BudgetDecision extractBudgetDecision(ChatClientResponse response) {
+        Map<String, Object> context = response.context();
+        Object value = context == null ? null : context.get(BUDGET_DECISION_CONTEXT);
+        if (value instanceof BudgetDecision decision) {
+            return decision;
+        }
+        throw new IllegalStateException("Resolved budget decision is missing from response context");
     }
 
     private Map<String, String> extractTagsFromRequest(ChatClientRequest request) {
