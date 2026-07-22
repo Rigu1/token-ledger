@@ -58,4 +58,21 @@ public class CostTest {
         assertThatThrownBy(() -> usdCost.add(krwCost))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void shouldTreatNumericallyEqualAmountsAsEqualRegardlessOfScale() {
+        Cost oneDecimal = Cost.of(new BigDecimal("1.0"), USD);
+        Cost twoDecimals = Cost.of(new BigDecimal("1.00"), USD);
+
+        assertThat(oneDecimal).isEqualTo(twoDecimals);
+        assertThat(oneDecimal.hashCode()).isEqualTo(twoDecimals.hashCode());
+    }
+
+    @Test
+    void shouldNotTreatSameAmountWithDifferentCurrencyAsEqual() {
+        Cost usdCost = Cost.of(new BigDecimal("1.00"), USD);
+        Cost krwCost = Cost.of(new BigDecimal("1.00"), KRW);
+
+        assertThat(usdCost).isNotEqualTo(krwCost);
+    }
 }

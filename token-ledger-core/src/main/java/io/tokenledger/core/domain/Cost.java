@@ -51,4 +51,22 @@ public record Cost(
             throw new IllegalArgumentException("Cannot operate on costs with different currencies");
         }
     }
+
+    @Override
+    public boolean equals(Object object) {
+        if (this == object) {
+            return true;
+        }
+        if (!(object instanceof Cost other)) {
+            return false;
+        }
+
+        return amount.compareTo(other.amount) == 0
+                && currency.equals(other.currency);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(amount.stripTrailingZeros(), currency);
+    }
 }
