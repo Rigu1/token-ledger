@@ -3,6 +3,7 @@ package io.tokenledger.core.internal;
 import io.tokenledger.core.*;
 import io.tokenledger.core.domain.*;
 
+import java.util.Currency;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -16,6 +17,8 @@ class DefaultLedgerManager implements LedgerManager {
     private final PricingRegistry pricingRegistry;
     private final CostCalculator costCalculator;
     private final List<LedgerListener> listeners = new CopyOnWriteArrayList<>();
+
+    static String DEFAULT_CURRENCY = "USD";
 
     public DefaultLedgerManager(PricingRegistry pricingRegistry, CostCalculator costCalculator) {
         this(pricingRegistry, costCalculator, List.of());
@@ -44,7 +47,7 @@ class DefaultLedgerManager implements LedgerManager {
 
         Cost cost = planOpt
                 .map(plan -> costCalculator.calculate(usage, plan))
-                .orElse(Cost.zero());
+                .orElse(Cost.zero(Currency.getInstance(DEFAULT_CURRENCY)));
 
         // 이벤트 발행 (리스너들에게 전파)
         if (!listeners.isEmpty()) {

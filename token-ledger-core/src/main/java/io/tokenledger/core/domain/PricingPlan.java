@@ -19,10 +19,12 @@ public record PricingPlan(
         Map<TokenType, BigDecimal> rates,
         Currency currency
 ) {
+    static String DEFAULT_CURRENCY = "USD";
+
     public PricingPlan {
         rates = Collections.unmodifiableMap(new EnumMap<>(rates));
         if (currency == null) {
-            currency = Currency.getInstance("USD");
+            currency = Currency.getInstance(DEFAULT_CURRENCY);
         }
         // 모든 단가는 0 이상이어야 함
         rates.values().forEach(v -> {

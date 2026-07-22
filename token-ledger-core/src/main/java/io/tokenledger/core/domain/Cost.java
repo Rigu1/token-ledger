@@ -3,35 +3,52 @@ package io.tokenledger.core.domain;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Currency;
+import java.util.Objects;
 
 /**
  * 계산된 AI 호출 비용 정보.
  *
- * @param value    비용 (BigDecimal, 소수점 6자리 권장)
+ * @param amount    비용 (BigDecimal, 소수점 6자리 권장)
  * @param currency 통화 (기본값: USD)
  */
 public record Cost(
-        BigDecimal value,
+        BigDecimal amount,
         Currency currency
 ) {
-    public static final Currency DEFAULT_CURRENCY = Currency.getInstance("USD");
 
     public Cost {
-        value = value.setScale(6, RoundingMode.HALF_UP);
+        Objects.requireNonNull(amount, "amount cant be null");
+        Objects.requireNonNull(currency, "currency cant be null");
+
+        validateNonNegativeAmount(amount);
     }
 
-    public static Cost of(BigDecimal value) {
-        return new Cost(value, DEFAULT_CURRENCY);
+    private static void validateNonNegativeAmount(BigDecimal amount) {
+        if (amount.compareTo(BigDecimal.ZERO) < 0) {
+            throw new IllegalArgumentException("Cost value must not be negative");
+        }
     }
 
-    public static Cost zero() {
-        return of(BigDecimal.ZERO);
+    public static Cost of(BigDecimal value, Currency currency) {
+        return new Cost(value, currency);
+    }
+
+    public static Cost zero(Currency currency) {
+        return of(BigDecimal.ZERO, currency);
     }
 
     public Cost add(Cost other) {
-        if (!this.currency.equals(other.currency)) {
-            throw new IllegalArgumentException("Cannot add costs with different currencies");
+        Objects.requireNonNull(other, "cost cant be null");
+        validateSameCurrency(other);
+
+        BigDecimal totalAmount = amount.add(other.amount);
+
+        return new Cost(totalAmount, currency);
+    }
+
+    private void validateSameCurrency(Cost other) {
+        if (!currency.equals(other.currency)) {
+            throw new IllegalArgumentException("Cannot operate on costs with different currencies");
         }
-        return new Cost(this.value.add(other.value), this.currency);
     }
 }

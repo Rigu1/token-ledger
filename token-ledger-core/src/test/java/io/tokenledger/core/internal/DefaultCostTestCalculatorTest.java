@@ -4,7 +4,7 @@ import io.tokenledger.core.domain.Cost;
 import io.tokenledger.core.domain.PricingPlan;
 import io.tokenledger.core.domain.TokenType;
 import io.tokenledger.core.domain.TokenUsage;
-import org.junit.jupiter.api.BeforeEach;
+import java.util.Currency;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -14,9 +14,11 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class DefaultCostCalculatorTest {
+class DefaultCostTestCalculatorTest {
 
     private final DefaultCostCalculator calculator = new DefaultCostCalculator();
+
+    private static final String DEFAULT_CURRENCY = "USD";
 
     @Test
     @DisplayName("기본 입력/출력 토큰 비용이 정확하게 계산되어야 한다")
@@ -30,7 +32,7 @@ class DefaultCostCalculatorTest {
         Cost cost = calculator.calculate(usage, plan);
 
         // Then: (1000 * 0.01 / 1000) + (2000 * 0.03 / 1000) = 0.01 + 0.06 = 0.07
-        assertThat(cost.value()).isEqualByComparingTo("0.070000");
+        assertThat(cost.amount()).isEqualByComparingTo("0.070000");
     }
 
     @Test
@@ -41,7 +43,7 @@ class DefaultCostCalculatorTest {
         rates.put(TokenType.PROMPT, new BigDecimal("0.015"));
         rates.put(TokenType.COMPLETION, new BigDecimal("0.060"));
         rates.put(TokenType.REASONING, new BigDecimal("0.045"));
-        PricingPlan plan = new PricingPlan("o1-preview", rates, Cost.DEFAULT_CURRENCY);
+        PricingPlan plan = new PricingPlan("o1-preview", rates, Currency.getInstance(DEFAULT_CURRENCY));
 
         // Usage: Prompt 1000, Completion 500, Reasoning 1500 (Total 3000)
         Map<TokenType, Long> counts = new EnumMap<>(TokenType.class);
@@ -58,7 +60,7 @@ class DefaultCostCalculatorTest {
         //  500 * 0.060 / 1000 = 0.030
         // 1500 * 0.045 / 1000 = 0.0675
         // Total = 0.015 + 0.030 + 0.0675 = 0.1125
-        assertThat(cost.value()).isEqualByComparingTo("0.112500");
+        assertThat(cost.amount()).isEqualByComparingTo("0.112500");
     }
 
     @Test
@@ -73,6 +75,6 @@ class DefaultCostCalculatorTest {
         Cost cost = calculator.calculate(usage, plan);
 
         // Then: 1000 * 0.01 / 1000 + 1000 * 0.03 / 1000 = 0.04
-        assertThat(cost.value()).isEqualByComparingTo("0.040000");
+        assertThat(cost.amount()).isEqualByComparingTo("0.040000");
     }
 }

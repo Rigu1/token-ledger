@@ -38,7 +38,7 @@ class DefaultLedgerManagerTest {
 
         Cost cost = manager.record("gpt-4o", usage, Map.of());
 
-        assertThat(cost.value()).isEqualByComparingTo("20.000000");
+        assertThat(cost.amount()).isEqualByComparingTo("20.000000");
         verify(listener).onRecord(argThat(event -> 
             event.modelId().equals("gpt-4o") &&
             event.usage().equals(usage) &&
@@ -53,7 +53,7 @@ class DefaultLedgerManagerTest {
 
         Cost result = manager.record("unknown-model", usage, Map.of());
 
-        assertThat(result.value()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(result.amount()).isEqualByComparingTo(BigDecimal.ZERO);
         verify(listener).onRecord(any(CostRecordedEvent.class));
     }
 }
