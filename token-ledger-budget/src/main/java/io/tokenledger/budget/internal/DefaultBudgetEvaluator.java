@@ -41,6 +41,11 @@ public class DefaultBudgetEvaluator implements BudgetEvaluator {
 
         // ✅ 현재까지 누적 비용
         Cost accumulated = store.getAccumulatedCost(tags, monthlyLimit.currency());
+
+        if (hasCurrencyMismatch(cost)) {
+            return currencyMismatchDecision(accumulated);
+        }
+
         // ✅ 이번 호출까지 포함한 비용 (비교용)
         Cost nextUsage = accumulated.add(cost);
 
@@ -84,6 +89,19 @@ public class DefaultBudgetEvaluator implements BudgetEvaluator {
                 BudgetState.ALLOW,
                 "예산 범위 내입니다",
                 nextUsage,
+                monthlyLimit
+        );
+    }
+
+    private boolean hasCurrencyMismatch(Cost cost) {
+        return !monthlyLimit.currency().equals(cost.currency());
+    }
+
+    private BudgetDecision currencyMismatchDecision(Cost currentUsage) {
+        return new BudgetDecision(
+                BudgetState.CURRENCY_MISMATCH,
+                "예산 통화와 비용 통화가 일치하지 않습니다",
+                currentUsage,
                 monthlyLimit
         );
     }

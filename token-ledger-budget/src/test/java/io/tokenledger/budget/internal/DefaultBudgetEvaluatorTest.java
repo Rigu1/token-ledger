@@ -14,13 +14,18 @@ import static org.junit.jupiter.api.Assertions.*;
 class DefaultBudgetEvaluatorTest {
 
     private static final Currency USD = Currency.getInstance("USD");
+    private static final Currency KRW = Currency.getInstance("KRW");
 
     private static Cost usd(String amount) {
         return Cost.of(new BigDecimal(amount), USD);
     }
 
+    private static Cost krw(String amount) {
+        return Cost.of(new BigDecimal(amount), KRW);
+    }
+
     @Test
-    void should_return_allow_when_usage_is_below_80_percent() {
+    void shouldReturnAllowWhenUsageIsBelow80Percent() {
         // given
         BudgetStateStore store = new InMemoryBudgetStateStore();
         BudgetEvaluator evaluator =
@@ -39,7 +44,7 @@ class DefaultBudgetEvaluatorTest {
     }
 
     @Test
-    void should_return_warn_when_usage_exceeds_80_percent() {
+    void shouldReturnWarnWhenUsageExceeds80Percent() {
         // given
         BudgetStateStore store = new InMemoryBudgetStateStore();
         BudgetEvaluator evaluator =
@@ -58,7 +63,7 @@ class DefaultBudgetEvaluatorTest {
     }
 
     @Test
-    void should_throw_exception_when_usage_exceeds_limit() {
+    void shouldThrowExceptionWhenUsageExceedsLimit() {
         // given
         BudgetStateStore store = new InMemoryBudgetStateStore();
         BudgetEvaluator evaluator =
@@ -74,7 +79,7 @@ class DefaultBudgetEvaluatorTest {
     }
 
     @Test
-    void should_evaluate_current_status_without_cost_amount() {
+    void shouldEvaluateCurrentStatusWithoutCostAmount() {
         // given
         BudgetStateStore store = new InMemoryBudgetStateStore();
         BudgetEvaluator evaluator =
@@ -93,7 +98,7 @@ class DefaultBudgetEvaluatorTest {
     }
 
     @Test
-    void evaluate_should_be_pure_function() {
+    void evaluateShouldBePureFunction() {
         // given
         BudgetStateStore store = new InMemoryBudgetStateStore();
         BudgetEvaluator evaluator =
@@ -109,5 +114,23 @@ class DefaultBudgetEvaluatorTest {
         // Still ALLOW because addCost was not called
         assertEquals(Cost.zero(USD), store.getAccumulatedCost(tags, USD));
         assertEquals(BudgetState.ALLOW, evaluator.evaluate(tags, usd("50")).state());
+    }
+
+    @Test
+    void shouldReturnCurrencyMismatchWithoutChangingAccumulatedCost() {
+        BudgetStateStore store = new InMemoryBudgetStateStore();
+        BudgetEvaluator evaluator =
+                new DefaultBudgetEvaluator(store, usd("100"));
+
+        Map<String, String> tags = Map.of("tenant_id", "test");
+        store.addCost(tags, usd("10"));
+        Cost accumulatedBefore = store.getAccumulatedCost(tags, USD);
+
+        BudgetDecision decision = evaluator.evaluate(tags, krw("50"));
+
+        assertEquals(BudgetState.CURRENCY_MISMATCH, decision.state());
+        assertEquals(accumulatedBefore, decision.currentUsage());
+        assertEquals(usd("100"), decision.limit());
+        assertEquals(accumulatedBefore, store.getAccumulatedCost(tags, USD));
     }
 }
