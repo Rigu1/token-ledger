@@ -10,8 +10,14 @@ import java.util.Map;
 /**
  * BudgetEvaluator의 기본 구현체입니다.
  * <p>
- * 판단 기준: - 80% 미만  → ALLOW - 80% 이상  → WARN - 100% 이상 → BLOCK (예외 발생) - currency 이 클래스의 evaluate 메서드는 부수 효과가 없는 순수 함수로
- * 동작합니다. 실제 비용 누적은 BudgetStateStore.addCost를 통해 별도로 수행해야 합니다.
+ * 판단 기준:
+ * - 80% 미만  → ALLOW
+ * - 80% 이상  → WARN
+ * - 100% 이상 → BLOCK (예외 발생)
+ * - 통화 불일치 → CURRENCY_MISMATCH
+ * <p>
+ * 이 클래스의 evaluate 메서드는 부수 효과가 없는 순수 함수로 동작합니다.
+ * 실제 비용 누적은 BudgetStateStore.addCost를 통해 별도로 수행해야 합니다.
  */
 public class DefaultBudgetEvaluator implements BudgetEvaluator {
 
@@ -30,7 +36,7 @@ public class DefaultBudgetEvaluator implements BudgetEvaluator {
 
     @Override
     public BudgetDecision evaluate(Map<String, String> tags) {
-        return evaluate(tags, Cost.zero(monthlyLimit.currency()));
+        return evaluate(tags, Cost.zero(monthlyLimit .currency()));
     }
 
     @Override
@@ -42,7 +48,7 @@ public class DefaultBudgetEvaluator implements BudgetEvaluator {
         // ✅ 현재까지 누적 비용
         Cost accumulated = store.getAccumulatedCost(tags, monthlyLimit.currency());
 
-        if (hasCurrencyMismatch(cost)) {
+        if (hasCurrencyMismatch(accumulated) || hasCurrencyMismatch(cost)) {
             return currencyMismatchDecision(accumulated);
         }
 
