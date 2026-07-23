@@ -14,7 +14,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-class DefaultCostTestCalculatorTest {
+class DefaultCostCalculatorTest {
 
     private final DefaultCostCalculator calculator = new DefaultCostCalculator();
 
@@ -76,5 +76,20 @@ class DefaultCostTestCalculatorTest {
 
         // Then: 1000 * 0.01 / 1000 + 1000 * 0.03 / 1000 = 0.04
         assertThat(cost.amount()).isEqualByComparingTo("0.040000");
+    }
+
+    @Test
+    @DisplayName("1,000 token은 1K 단가 그대로 계산되어야 한다")
+    void shouldUseRateAsCostForOneThousandTokens() {
+        PricingPlan plan = new PricingPlan(
+                "tiny-model",
+                new BigDecimal("0.0004"),
+                BigDecimal.ZERO
+        );
+        TokenUsage usage = TokenUsage.from(1, 0);
+
+        Cost cost = calculator.calculate(usage, plan);
+
+        assertThat(cost.amount()).isEqualByComparingTo("0.0000004");
     }
 }
