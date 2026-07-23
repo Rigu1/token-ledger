@@ -1,7 +1,6 @@
 package io.tokenledger.budget;
 
 import io.tokenledger.core.domain.Cost;
-import java.math.BigDecimal;
 import java.util.Currency;
 import java.util.Map;
 
