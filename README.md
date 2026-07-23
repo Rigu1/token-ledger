@@ -27,7 +27,7 @@ Spring AI 애플리케이션에서 AI 호출 토큰 사용량과 비용을 기�
 
 - 모델별 가격 정책: `PricingPlan`
 - 토큰 타입별 사용량: `PROMPT`, `COMPLETION`, `REASONING`, `CACHED_PROMPT`, `CACHED_COMPLETION`
-- 비용 계산: 1K 토큰당 단가 기반, 최종 비용 소수점 6자리 반올림
+- 비용 계산: 1K 토큰당 단가 기반으로 내부 정밀도를 보존하고, 외부 경계에서 `RoundingPolicy`로 명시적으로 반올림
 - 비용 기록 이벤트: `CostRecordedEvent`
 - 리스너 기반 확장: `LedgerListener`
 - Spring AI 응답 usage 추출: `UsageExtractor`
