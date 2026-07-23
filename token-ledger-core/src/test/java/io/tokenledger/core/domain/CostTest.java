@@ -50,7 +50,7 @@ public class CostTest {
         Cost cost = Cost.of(BigDecimal.ONE, USD);
 
         assertThatNullPointerException()
-                .isThrownBy(() -> cost.compareTo(null));
+                .isThrownBy(() -> cost.add(null));
     }
 
     @Test
