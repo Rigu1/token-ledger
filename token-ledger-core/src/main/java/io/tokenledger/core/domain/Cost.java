@@ -46,6 +46,13 @@ public record Cost(
         return new Cost(totalAmount, currency);
     }
 
+    public int compareTo(Cost other) {
+        Objects.requireNonNull(other, "cost cant be null");
+        validateSameCurrency(other);
+
+        return amount.compareTo(other.amount);
+    }
+
     private void validateSameCurrency(Cost other) {
         if (!currency.equals(other.currency)) {
             throw new IllegalArgumentException("Cannot operate on costs with different currencies");

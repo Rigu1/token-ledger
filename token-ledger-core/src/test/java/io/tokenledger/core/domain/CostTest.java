@@ -45,6 +45,15 @@ public class CostTest {
     }
 
     @Test
+    @DisplayName("null 비용을 추가하면 거부해야 한다.")
+    void shouldRejectAddWithNullCost() {
+        Cost cost = Cost.of(BigDecimal.ONE, USD);
+
+        assertThatNullPointerException()
+                .isThrownBy(() -> cost.compareTo(null));
+    }
+
+    @Test
     @DisplayName("동일한 통화로 비용을 추가해야 한다.")
     void shouldAddCostsWithSameCurrency() {
         Cost first = Cost.of(new BigDecimal("1.25"), USD);
@@ -63,6 +72,37 @@ public class CostTest {
         Cost krwCost = Cost.of(BigDecimal.ONE, KRW);
 
         assertThatThrownBy(() -> usdCost.add(krwCost))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("null 비용과 비교하면 거부해야 한다.")
+    void shouldRejectCompareWithNullCost() {
+        Cost cost = Cost.of(BigDecimal.ONE, USD);
+
+        assertThatNullPointerException()
+                .isThrownBy(() -> cost.compareTo(null));
+    }
+
+    @Test
+    @DisplayName("동일한 통화로 비용을 비교해야 한다.")
+    void shouldCompareCostsWithSameCurrency() {
+        Cost lower = Cost.of(new BigDecimal("1.25"), USD);
+        Cost higher = Cost.of(new BigDecimal("2.75"), USD);
+        Cost sameAmount = Cost.of(new BigDecimal("1.250"), USD);
+
+        assertThat(lower.compareTo(higher)).isNegative();
+        assertThat(higher.compareTo(lower)).isPositive();
+        assertThat(lower.compareTo(sameAmount)).isZero();
+    }
+
+    @Test
+    @DisplayName("다른 통화로 비용을 비교하면 거부해야 한다.")
+    void shouldRejectCompareWithDifferentCurrency() {
+        Cost usdCost = Cost.of(BigDecimal.ONE, USD);
+        Cost krwCost = Cost.of(BigDecimal.ONE, KRW);
+
+        assertThatThrownBy(() -> usdCost.compareTo(krwCost))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 

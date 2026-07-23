@@ -1,6 +1,8 @@
 package io.tokenledger.budget;
 
+import io.tokenledger.core.domain.Cost;
 import java.math.BigDecimal;
+import java.util.Currency;
 import java.util.Map;
 
 
@@ -13,7 +15,7 @@ import java.util.Map;
 
 public interface BudgetStateStore {
 
-  BigDecimal getAccumulatedCost(Map<String, String> tags);
+  Cost getAccumulatedCost(Map<String, String> tags, Currency currency);
 
-  void addCost(Map<String, String> tags, BigDecimal amount);
+  void addCost(Map<String, String> tags, Cost cost);
 }

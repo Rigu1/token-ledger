@@ -10,5 +10,6 @@ package io.tokenledger.budget;
 public enum BudgetState {
   ALLOW,
   WARN,
-  BLOCK
+  BLOCK,
+  CURRENCY_MISMATCH
 }

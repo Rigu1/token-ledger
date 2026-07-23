@@ -2,6 +2,7 @@ package io.tokenledger.budget.internal;
 
 import io.tokenledger.budget.BudgetEvaluator;
 import io.tokenledger.budget.BudgetStateStore;
+import io.tokenledger.core.domain.Cost;
 
 /**
  * 예산 제어 컴포넌트 생성을 위한 팩토리 클래스입니다.
@@ -15,7 +16,7 @@ public final class LedgerBudgetComponents {
         return new InMemoryBudgetStateStore();
     }
 
-    public static BudgetEvaluator defaultBudgetEvaluator(BudgetStateStore store, java.math.BigDecimal monthlyLimit) {
+    public static BudgetEvaluator defaultBudgetEvaluator(BudgetStateStore store, Cost monthlyLimit) {
         return new DefaultBudgetEvaluator(store, monthlyLimit);
     }
 }

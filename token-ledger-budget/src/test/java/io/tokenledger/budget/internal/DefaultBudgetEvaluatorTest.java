@@ -2,6 +2,8 @@ package io.tokenledger.budget.internal;
 
 import io.tokenledger.budget.*;
 import io.tokenledger.budget.exception.BudgetExceededException;
+import io.tokenledger.core.domain.Cost;
+import java.util.Currency;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -11,90 +13,101 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class DefaultBudgetEvaluatorTest {
 
-  @Test
-  void should_return_allow_when_usage_is_below_80_percent() {
-    // given
-    BudgetStateStore store = new InMemoryBudgetStateStore();
-    BudgetEvaluator evaluator =
-        new DefaultBudgetEvaluator(store, BigDecimal.valueOf(100));
+    private static final Currency USD = Currency.getInstance("USD");
 
-    Map<String, String> tags = Map.of("tenant_id", "test");
+    private static Cost usd(String amount) {
+        return Cost.of(new BigDecimal(amount), USD);
+    }
 
-    // when
-    BudgetDecision decision =
-        evaluator.evaluate(tags, BigDecimal.valueOf(50));
+    @Test
+    void should_return_allow_when_usage_is_below_80_percent() {
+        // given
+        BudgetStateStore store = new InMemoryBudgetStateStore();
+        BudgetEvaluator evaluator =
+                new DefaultBudgetEvaluator(store, usd("100"));
 
-    // then
-    assertEquals(BudgetState.ALLOW, decision.state());
-  }
+        Map<String, String> tags = Map.of("tenant_id", "test");
 
-  @Test
-  void should_return_warn_when_usage_exceeds_80_percent() {
-    // given
-    BudgetStateStore store = new InMemoryBudgetStateStore();
-    BudgetEvaluator evaluator =
-        new DefaultBudgetEvaluator(store, BigDecimal.valueOf(100));
+        // when
+        BudgetDecision decision =
+                evaluator.evaluate(tags, usd("50"));
 
-    Map<String, String> tags = Map.of("tenant_id", "test");
+        // then
+        assertEquals(BudgetState.ALLOW, decision.state());
+        assertEquals(usd("50"), decision.currentUsage());
+        assertEquals(usd("100"), decision.limit());
+    }
 
-    // when
-    BudgetDecision decision =
-        evaluator.evaluate(tags, BigDecimal.valueOf(85));
+    @Test
+    void should_return_warn_when_usage_exceeds_80_percent() {
+        // given
+        BudgetStateStore store = new InMemoryBudgetStateStore();
+        BudgetEvaluator evaluator =
+                new DefaultBudgetEvaluator(store, usd("100"));
 
-    // then
-    assertEquals(BudgetState.WARN, decision.state());
-  }
+        Map<String, String> tags = Map.of("tenant_id", "test");
 
-  @Test
-  void should_throw_exception_when_usage_exceeds_limit() {
-    // given
-    BudgetStateStore store = new InMemoryBudgetStateStore();
-    BudgetEvaluator evaluator =
-        new DefaultBudgetEvaluator(store, BigDecimal.valueOf(100));
+        // when
+        BudgetDecision decision =
+                evaluator.evaluate(tags, usd("85"));
 
-    Map<String, String> tags = Map.of("tenant_id", "test");
+        // then
+        assertEquals(BudgetState.WARN, decision.state());
+        assertEquals(usd("85"), decision.currentUsage());
+        assertEquals(usd("100"), decision.limit());
+    }
 
-    // when & then
-    assertThrows(
-        BudgetExceededException.class,
-        () -> evaluator.evaluate(tags, BigDecimal.valueOf(120))
-    );
-  }
+    @Test
+    void should_throw_exception_when_usage_exceeds_limit() {
+        // given
+        BudgetStateStore store = new InMemoryBudgetStateStore();
+        BudgetEvaluator evaluator =
+                new DefaultBudgetEvaluator(store, usd("100"));
 
-  @Test
-  void should_evaluate_current_status_without_cost_amount() {
-    // given
-    BudgetStateStore store = new InMemoryBudgetStateStore();
-    BudgetEvaluator evaluator =
-        new DefaultBudgetEvaluator(store, BigDecimal.valueOf(100));
+        Map<String, String> tags = Map.of("tenant_id", "test");
 
-    Map<String, String> tags = Map.of("tenant_id", "test");
-    store.addCost(tags, BigDecimal.valueOf(90));
+        // when & then
+        assertThrows(
+                BudgetExceededException.class,
+                () -> evaluator.evaluate(tags, usd("120"))
+        );
+    }
 
-    // when
-    BudgetDecision decision = evaluator.evaluate(tags);
+    @Test
+    void should_evaluate_current_status_without_cost_amount() {
+        // given
+        BudgetStateStore store = new InMemoryBudgetStateStore();
+        BudgetEvaluator evaluator =
+                new DefaultBudgetEvaluator(store, usd("100"));
 
-    // then
-    assertEquals(BudgetState.WARN, decision.state());
-    assertEquals(BigDecimal.valueOf(90), decision.currentUsage());
-  }
+        Map<String, String> tags = Map.of("tenant_id", "test");
+        store.addCost(tags, usd("90"));
 
-  @Test
-  void evaluate_should_be_pure_function() {
-    // given
-    BudgetStateStore store = new InMemoryBudgetStateStore();
-    BudgetEvaluator evaluator =
-        new DefaultBudgetEvaluator(store, BigDecimal.valueOf(100));
+        // when
+        BudgetDecision decision = evaluator.evaluate(tags);
 
-    Map<String, String> tags = Map.of("tenant_id", "test");
+        // then
+        assertEquals(BudgetState.WARN, decision.state());
+        assertEquals(usd("90"), decision.currentUsage());
+        assertEquals(usd("100"), decision.limit());
+    }
 
-    // when
-    evaluator.evaluate(tags, BigDecimal.valueOf(50));
-    evaluator.evaluate(tags, BigDecimal.valueOf(50));
+    @Test
+    void evaluate_should_be_pure_function() {
+        // given
+        BudgetStateStore store = new InMemoryBudgetStateStore();
+        BudgetEvaluator evaluator =
+                new DefaultBudgetEvaluator(store, usd("100"));
 
-    // then
-    // Still ALLOW because addCost was not called
-    assertEquals(BigDecimal.ZERO, store.getAccumulatedCost(tags));
-    assertEquals(BudgetState.ALLOW, evaluator.evaluate(tags, BigDecimal.valueOf(50)).state());
-  }
+        Map<String, String> tags = Map.of("tenant_id", "test");
+
+        // when
+        evaluator.evaluate(tags, usd("50"));
+        evaluator.evaluate(tags, usd("50"));
+
+        // then
+        // Still ALLOW because addCost was not called
+        assertEquals(Cost.zero(USD), store.getAccumulatedCost(tags, USD));
+        assertEquals(BudgetState.ALLOW, evaluator.evaluate(tags, usd("50")).state());
+    }
 }
