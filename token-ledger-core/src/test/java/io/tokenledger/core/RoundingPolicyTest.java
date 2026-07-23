@@ -36,4 +36,22 @@ class RoundingPolicyTest {
         assertThat(roundedCost.amount()).isEqualByComparingTo("12.345679");
         assertThat(roundedCost.currency()).isEqualTo(krw);
     }
+
+    @Test
+    @DisplayName("작은 비용을 여러 번 더한 값은 최종 한 번 반올림한 값과 같아야 한다")
+    void shouldRoundAccumulatedSmallCostsOnceAtBoundary() {
+        Cost unitCost = Cost.of(new BigDecimal("0.0000004"), USD);
+        Cost accumulated = Cost.zero(USD);
+
+        for (int i = 0; i < 1000; i++) {
+            accumulated = accumulated.add(unitCost);
+        }
+
+        Cost rounded = RoundingPolicy.COST_BOUNDARY_ROUNDING.apply(accumulated);
+
+        assertThat(accumulated.amount()).isEqualByComparingTo("0.0004000");
+        assertThat(rounded.amount()).isEqualByComparingTo("0.000400");
+        assertThat(rounded.amount().scale()).isEqualTo(6);
+        assertThat(rounded.currency()).isEqualTo(USD);
+    }
 }
