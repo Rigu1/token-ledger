@@ -8,8 +8,8 @@ import java.util.Objects;
 /**
  * 계산된 AI 호출 비용 정보.
  *
- * @param amount    비용 (BigDecimal, 소수점 6자리 권장)
- * @param currency 통화 (기본값: USD)
+ * @param amount   비용 (BigDecimal)
+ * @param currency 통화 (Currency)
  */
 public record Cost(
         BigDecimal amount,
