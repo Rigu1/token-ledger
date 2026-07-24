@@ -103,8 +103,8 @@ public class SampleController {
                     "enabled", "true",
                     "initialState", initialDecision.state().name(),
                     "blockedState", blockedDecision.state().name(),
-                    "currentUsage", blockedDecision.currentUsage().value().toPlainString(),
-                    "limit", blockedDecision.limit().value().toPlainString()
+                    "currentUsage", CostBoundaryFormatter.format(blockedDecision.currentUsage()),
+                    "limit", CostBoundaryFormatter.format(blockedDecision.limit())
             );
         }
     }
