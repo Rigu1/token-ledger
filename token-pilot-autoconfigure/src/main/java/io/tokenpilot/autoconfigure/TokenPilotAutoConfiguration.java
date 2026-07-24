@@ -28,6 +28,8 @@ import io.tokenpilot.notification.BudgetNotificationService;
 import io.tokenpilot.notification.InMemoryNotificationStateStore;
 import io.tokenpilot.notification.NotificationStateStore;
 
+import java.time.Clock;
+
 /**
  * Token Pilot 라이브러리의 자동 설정을 담당하는 클래스.
  */
@@ -165,9 +167,16 @@ public class TokenPilotAutoConfiguration {
     @ConditionalOnMissingBean
     @ConditionalOnClass(LedgerBudgetComponents.class)
     @ConditionalOnProperty(prefix = "token-pilot.budget", name = "enabled", havingValue = "true")
-    public BudgetEvaluator budgetEvaluator(BudgetStateStore budgetStateStore, TokenPilotProperties properties) {
-        return LedgerBudgetComponents.defaultBudgetEvaluator(budgetStateStore, properties.getBudget()
-                                                                                         .getMonthlyLimit());
+    public BudgetEvaluator budgetEvaluator(
+        BudgetStateStore budgetStateStore,
+        TokenPilotProperties properties,
+        ObjectProvider<Clock> clock
+    ) {
+        return LedgerBudgetComponents.defaultBudgetEvaluator(
+            budgetStateStore,
+            properties.toBudgetPolicy(),
+            clock.getIfAvailable(Clock::systemUTC)
+        );
     }
 
     /**

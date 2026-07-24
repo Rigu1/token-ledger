@@ -1,6 +1,7 @@
 package io.tokenpilot.budget;
 
 import java.math.BigDecimal;
+import java.util.Currency;
 
 /**
  *  예산 평가 결과를 나타내는 객체
@@ -10,11 +11,15 @@ import java.math.BigDecimal;
  * - reason: 상태 설명
  * - currentUsage: 현재 사용량
  * - limit: 총 예산
+ * - key: 평가 시점에 확정된 예산 bucket 식별자
+ * - currency: 예산 통화
  */
 public record BudgetDecision(
+    BudgetKey key,
     BudgetState state,
     BudgetThreshold threshold,
     String reason,
     BigDecimal currentUsage,
-    BigDecimal limit
+    BigDecimal limit,
+    Currency currency
 ) {}

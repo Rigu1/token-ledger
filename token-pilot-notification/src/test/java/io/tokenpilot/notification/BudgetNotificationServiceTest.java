@@ -1,112 +1,91 @@
 package io.tokenpilot.notification;
 
 import io.tokenpilot.budget.BudgetDecision;
+import io.tokenpilot.budget.BudgetKey;
 import io.tokenpilot.budget.BudgetState;
 import io.tokenpilot.budget.BudgetThreshold;
+import io.tokenpilot.budget.BudgetWindow;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.math.BigDecimal;
+import java.util.Currency;
 import java.util.Map;
 
-import static org.mockito.Mockito.*;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.same;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
-/**
- * BudgetNotificationService 동작 검증 테스트
- */
 class BudgetNotificationServiceTest {
 
   @Test
-  void threshold_increase_triggers_event_only_once_per_window() {
-
+  void 같은_key에서는_증가한_threshold만_알린다() {
     BudgetNotificationHandler handler = mock(BudgetNotificationHandler.class);
-    NotificationStateStore store = new InMemoryNotificationStateStore();
-
-    BudgetNotificationService service =
-        new BudgetNotificationService(handler, store);
-
-    String targetId = "user1";
-    String window = "2026-06";
-
-    BudgetDecision decision50 = new BudgetDecision(
-        BudgetState.WARN,
-        BudgetThreshold.HALF,
-        "50%",
-        BigDecimal.valueOf(50),
-        BigDecimal.valueOf(100)
+    BudgetNotificationService service = new BudgetNotificationService(
+        handler,
+        new InMemoryNotificationStateStore()
     );
+    BudgetKey key = key("2026-06");
 
-    BudgetDecision decision80 = new BudgetDecision(
-        BudgetState.WARN,
-        BudgetThreshold.WARNING,
-        "80%",
-        BigDecimal.valueOf(80),
-        BigDecimal.valueOf(100)
-    );
+    service.notifyIfNeeded(decision(key, BudgetThreshold.HALF, "50"), Map.of());
+    service.notifyIfNeeded(decision(key, BudgetThreshold.HALF, "50"), Map.of());
+    service.notifyIfNeeded(decision(key, BudgetThreshold.WARNING, "80"), Map.of());
 
-    // 50% 최초 → 발생
-    service.notifyIfNeeded(decision50, targetId, window, Map.of());
-
-    // 50% 반복 → 발생 안됨
-    service.notifyIfNeeded(decision50, targetId, window, Map.of());
-
-    // 80% → 발생
-    service.notifyIfNeeded(decision80, targetId, window, Map.of());
-
-    // 총 2번 발생해야 함 (50, 80)
     verify(handler, times(2)).handle(any());
   }
 
   @Test
-  void same_threshold_should_not_trigger_duplicate_event() {
-
+  void 새_window에서는_같은_threshold를_다시_알린다() {
     BudgetNotificationHandler handler = mock(BudgetNotificationHandler.class);
-    NotificationStateStore store = new InMemoryNotificationStateStore();
-
-    BudgetNotificationService service =
-        new BudgetNotificationService(handler, store);
-
-    String targetId = "user1";
-    String window = "2026-06";
-
-    BudgetDecision decision50 = new BudgetDecision(
-        BudgetState.WARN,
-        BudgetThreshold.HALF,
-        "50%",
-        BigDecimal.valueOf(50),
-        BigDecimal.valueOf(100)
+    BudgetNotificationService service = new BudgetNotificationService(
+        handler,
+        new InMemoryNotificationStateStore()
     );
 
-    service.notifyIfNeeded(decision50, targetId, window, Map.of());
-    service.notifyIfNeeded(decision50, targetId, window, Map.of());
+    service.notifyIfNeeded(decision(key("2026-06"), BudgetThreshold.HALF, "50"), Map.of());
+    service.notifyIfNeeded(decision(key("2026-07"), BudgetThreshold.HALF, "50"), Map.of());
 
-    verify(handler, times(1)).handle(any());
+    verify(handler, times(2)).handle(any());
   }
 
   @Test
-  void new_window_should_allow_notification_again() {
-
+  void event와_notification_store가_decision의_동일한_key를_사용한다() {
     BudgetNotificationHandler handler = mock(BudgetNotificationHandler.class);
-    NotificationStateStore store = new InMemoryNotificationStateStore();
+    NotificationStateStore store = mock(NotificationStateStore.class);
+    BudgetNotificationService service = new BudgetNotificationService(handler, store);
+    BudgetKey key = key("2026-07");
+    when(store.getLastNotifiedThreshold(key)).thenReturn(BudgetThreshold.NONE);
 
-    BudgetNotificationService service =
-        new BudgetNotificationService(handler, store);
+    service.notifyIfNeeded(decision(key, BudgetThreshold.HALF, "50"), Map.of());
 
-    String targetId = "user1";
+    ArgumentCaptor<BudgetNotificationEvent> event = ArgumentCaptor.forClass(BudgetNotificationEvent.class);
+    verify(handler).handle(event.capture());
+    verify(store).getLastNotifiedThreshold(same(key));
+    verify(store).updateLastNotifiedThreshold(same(key), same(BudgetThreshold.HALF));
+    assertThat(event.getValue().key()).isSameAs(key);
+  }
 
-    BudgetDecision decision50 = new BudgetDecision(
+  private static BudgetKey key(String window) {
+    return new BudgetKey("policy-a", "tenant", "tenant-a", BudgetWindow.parse(window));
+  }
+
+  private static BudgetDecision decision(
+      BudgetKey key,
+      BudgetThreshold threshold,
+      String usage
+  ) {
+    return new BudgetDecision(
+        key,
         BudgetState.WARN,
-        BudgetThreshold.HALF,
-        "50%",
-        BigDecimal.valueOf(50),
-        BigDecimal.valueOf(100)
+        threshold,
+        threshold.name(),
+        new BigDecimal(usage),
+        new BigDecimal("100"),
+        Currency.getInstance("USD")
     );
-
-    // 6월
-    service.notifyIfNeeded(decision50, targetId, "2026-06", Map.of());
-
-    // 7월 → 다시 발생해야 함
-    service.notifyIfNeeded(decision50, targetId, "2026-07", Map.of());
-
-    verify(handler, times(2)).handle(any());
   }
 }

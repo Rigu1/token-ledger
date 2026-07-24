@@ -26,8 +26,6 @@ public class BudgetNotificationService {
    */
   public void notifyIfNeeded(
       BudgetDecision decision,
-      String targetId,
-      String budgetWindow,
       Map<String, String> tags
   ) {
     BudgetThreshold current = decision.threshold();
@@ -36,8 +34,7 @@ public class BudgetNotificationService {
       return;
     }
 
-    BudgetThreshold last =
-        store.getLastNotifiedThreshold(targetId, budgetWindow);
+    BudgetThreshold last = store.getLastNotifiedThreshold(decision.key());
 
     // 같은 window에서 중복 방지
     if (current.compareTo(last) <= 0) {
@@ -46,8 +43,7 @@ public class BudgetNotificationService {
 
     BudgetNotificationEvent event =
         new BudgetNotificationEvent(
-            targetId,
-            budgetWindow,
+            decision.key(),
             current,
             decision.state(),
             decision.reason(),
@@ -59,8 +55,7 @@ public class BudgetNotificationService {
     handler.handle(event);
 
     store.updateLastNotifiedThreshold(
-        targetId,
-        budgetWindow,
+        decision.key(),
         current
     );
   }

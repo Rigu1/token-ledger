@@ -1,10 +1,13 @@
 package io.tokenpilot.autoconfigure;
 
+import io.tokenpilot.budget.BudgetPolicy;
 import io.tokenpilot.core.domain.PricingPlan;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
 
+import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Currency;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -80,6 +83,18 @@ public class TokenPilotProperties {
                       .toList();
     }
 
+    public BudgetPolicy toBudgetPolicy() {
+        return new BudgetPolicy(
+            budget.getPolicyId(),
+            budget.getTargetType(),
+            budget.getTargetTagKey(),
+            budget.getFallbackTargetId(),
+            budget.getMonthlyLimit(),
+            Currency.getInstance(budget.getCurrency()),
+            ZoneId.of(budget.getZoneId())
+        );
+    }
+
     public static class PricingProperties {
         private List<PricingPlanProperties> plans = new ArrayList<>();
 
@@ -116,6 +131,12 @@ public class TokenPilotProperties {
     public static class BudgetProperties {
         private boolean enabled = false;
         private java.math.BigDecimal monthlyLimit = new java.math.BigDecimal("10.00");
+        private String policyId = "default-monthly";
+        private String targetType = "tenant";
+        private String targetTagKey = "tenant_id";
+        private String fallbackTargetId;
+        private String currency = "USD";
+        private String zoneId = "UTC";
 
         public boolean isEnabled() {
             return enabled;
@@ -131,6 +152,60 @@ public class TokenPilotProperties {
 
         public void setMonthlyLimit(java.math.BigDecimal monthlyLimit) {
             this.monthlyLimit = monthlyLimit;
+        }
+
+        public String getPolicyId() {
+            return policyId;
+        }
+
+        public void setPolicyId(String policyId) {
+            this.policyId = policyId;
+        }
+
+        public String getTargetType() {
+            return targetType;
+        }
+
+        public void setTargetType(String targetType) {
+            this.targetType = targetType;
+        }
+
+        public String getTargetTagKey() {
+            return targetTagKey;
+        }
+
+        public void setTargetTagKey(String targetTagKey) {
+            this.targetTagKey = targetTagKey;
+        }
+
+        /**
+         * 대상 tag가 없을 때 사용할 명시적 fallback입니다. 미설정 시 평가는 fail-closed 됩니다.
+         */
+        public String getFallbackTargetId() {
+            return fallbackTargetId;
+        }
+
+        public void setFallbackTargetId(String fallbackTargetId) {
+            this.fallbackTargetId = fallbackTargetId;
+        }
+
+        public String getCurrency() {
+            return currency;
+        }
+
+        public void setCurrency(String currency) {
+            this.currency = currency;
+        }
+
+        /**
+         * 월별 budget window 경계를 계산하는 IANA ZoneId입니다. 기본값은 UTC입니다.
+         */
+        public String getZoneId() {
+            return zoneId;
+        }
+
+        public void setZoneId(String zoneId) {
+            this.zoneId = zoneId;
         }
     }
 

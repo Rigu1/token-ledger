@@ -1,5 +1,6 @@
 package io.tokenpilot.notification;
 
+import io.tokenpilot.budget.BudgetKey;
 import io.tokenpilot.budget.BudgetThreshold;
 
 /**
@@ -7,14 +8,10 @@ import io.tokenpilot.budget.BudgetThreshold;
  */
 public interface NotificationStateStore {
 
-  BudgetThreshold getLastNotifiedThreshold(
-      String targetId,
-      String budgetWindow
-  );
+  BudgetThreshold getLastNotifiedThreshold(BudgetKey key);
 
   void updateLastNotifiedThreshold(
-      String targetId,
-      String budgetWindow,
+      BudgetKey key,
       BudgetThreshold threshold
   );
 }

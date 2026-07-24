@@ -85,7 +85,12 @@ public class SampleController {
 
         Map<String, String> tags = Map.of("tenant_id", "budget-sample-tenant");
         BudgetDecision initialDecision = evaluator.evaluate(tags, new BigDecimal("0.001"));
-        stateStore.addCost(tags, new BigDecimal("0.0045"));
+        stateStore.addCost(
+                initialDecision.key(),
+                initialDecision.limit(),
+                initialDecision.currency(),
+                new Cost(new BigDecimal("0.0045"), initialDecision.currency())
+        );
 
         try {
             evaluator.evaluate(tags, new BigDecimal("0.001"));
@@ -100,7 +105,7 @@ public class SampleController {
                     "enabled", "true",
                     "initialState", initialDecision.state().name(),
                     "blockedState", blockedDecision.state().name(),
-                    "currentUsage", blockedDecision.currentUsage().toPlainString(),
+                    "currentUsage", blockedDecision.currentUsage().stripTrailingZeros().toPlainString(),
                     "limit", blockedDecision.limit().toPlainString()
             );
         }
