@@ -1,7 +1,6 @@
 package io.tokenpilot.budget;
 
 import io.tokenpilot.core.domain.Cost;
-import java.math.BigDecimal;
 import java.util.Currency;
 import java.util.Map;
 

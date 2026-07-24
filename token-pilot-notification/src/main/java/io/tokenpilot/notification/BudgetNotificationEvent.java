@@ -4,7 +4,6 @@ import io.tokenpilot.budget.BudgetState;
 import io.tokenpilot.budget.BudgetThreshold;
 
 import io.tokenpilot.core.domain.Cost;
-import java.math.BigDecimal;
 import java.util.Map;
 
 /**

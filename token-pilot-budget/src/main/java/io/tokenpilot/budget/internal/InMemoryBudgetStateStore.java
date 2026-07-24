@@ -3,7 +3,6 @@ package io.tokenpilot.budget.internal;
 import io.tokenpilot.budget.BudgetStateStore;
 
 import io.tokenpilot.core.domain.Cost;
-import java.math.BigDecimal;
 import java.util.Currency;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
