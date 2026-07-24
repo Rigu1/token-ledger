@@ -3,6 +3,7 @@ package io.tokenpilot.notification;
 import io.tokenpilot.budget.BudgetState;
 import io.tokenpilot.budget.BudgetThreshold;
 
+import io.tokenpilot.core.domain.Cost;
 import java.math.BigDecimal;
 import java.util.Map;
 
@@ -15,7 +16,7 @@ public record BudgetNotificationEvent(
     BudgetThreshold threshold,
     BudgetState state,
     String reason,
-    BigDecimal currentUsage,
-    BigDecimal limit,
+    Cost currentUsage,
+    Cost limit,
     Map<String, String> tags
 ) {}

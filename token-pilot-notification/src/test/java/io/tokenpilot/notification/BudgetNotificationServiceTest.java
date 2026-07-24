@@ -3,6 +3,8 @@ package io.tokenpilot.notification;
 import io.tokenpilot.budget.BudgetDecision;
 import io.tokenpilot.budget.BudgetState;
 import io.tokenpilot.budget.BudgetThreshold;
+import io.tokenpilot.core.domain.Cost;
+import java.util.Currency;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -15,98 +17,104 @@ import static org.mockito.Mockito.*;
  */
 class BudgetNotificationServiceTest {
 
-  @Test
-  void threshold_increase_triggers_event_only_once_per_window() {
+    private static final Currency USD = Currency.getInstance("USD");
 
-    BudgetNotificationHandler handler = mock(BudgetNotificationHandler.class);
-    NotificationStateStore store = new InMemoryNotificationStateStore();
+    private static Cost usd(String amount) {
+        return Cost.of(new BigDecimal(amount), USD);
+    }
 
-    BudgetNotificationService service =
-        new BudgetNotificationService(handler, store);
+    @Test
+    void threshold_increase_triggers_event_only_once_per_window() {
 
-    String targetId = "user1";
-    String window = "2026-06";
+        BudgetNotificationHandler handler = mock(BudgetNotificationHandler.class);
+        NotificationStateStore store = new InMemoryNotificationStateStore();
 
-    BudgetDecision decision50 = new BudgetDecision(
-        BudgetState.WARN,
-        BudgetThreshold.HALF,
-        "50%",
-        BigDecimal.valueOf(50),
-        BigDecimal.valueOf(100)
-    );
+        BudgetNotificationService service =
+                new BudgetNotificationService(handler, store);
 
-    BudgetDecision decision80 = new BudgetDecision(
-        BudgetState.WARN,
-        BudgetThreshold.WARNING,
-        "80%",
-        BigDecimal.valueOf(80),
-        BigDecimal.valueOf(100)
-    );
+        String targetId = "user1";
+        String window = "2026-06";
 
-    // 50% 최초 → 발생
-    service.notifyIfNeeded(decision50, targetId, window, Map.of());
+        BudgetDecision decision50 = new BudgetDecision(
+                BudgetState.WARN,
+                BudgetThreshold.HALF,
+                "50%",
+                usd("50"),
+                usd("100")
+        );
 
-    // 50% 반복 → 발생 안됨
-    service.notifyIfNeeded(decision50, targetId, window, Map.of());
+        BudgetDecision decision80 = new BudgetDecision(
+                BudgetState.WARN,
+                BudgetThreshold.WARNING,
+                "80%",
+                usd("80"),
+                usd("100")
+        );
 
-    // 80% → 발생
-    service.notifyIfNeeded(decision80, targetId, window, Map.of());
+        // 50% 최초 → 발생
+        service.notifyIfNeeded(decision50, targetId, window, Map.of());
 
-    // 총 2번 발생해야 함 (50, 80)
-    verify(handler, times(2)).handle(any());
-  }
+        // 50% 반복 → 발생 안됨
+        service.notifyIfNeeded(decision50, targetId, window, Map.of());
 
-  @Test
-  void same_threshold_should_not_trigger_duplicate_event() {
+        // 80% → 발생
+        service.notifyIfNeeded(decision80, targetId, window, Map.of());
 
-    BudgetNotificationHandler handler = mock(BudgetNotificationHandler.class);
-    NotificationStateStore store = new InMemoryNotificationStateStore();
+        // 총 2번 발생해야 함 (50, 80)
+        verify(handler, times(2)).handle(any());
+    }
 
-    BudgetNotificationService service =
-        new BudgetNotificationService(handler, store);
+    @Test
+    void same_threshold_should_not_trigger_duplicate_event() {
 
-    String targetId = "user1";
-    String window = "2026-06";
+        BudgetNotificationHandler handler = mock(BudgetNotificationHandler.class);
+        NotificationStateStore store = new InMemoryNotificationStateStore();
 
-    BudgetDecision decision50 = new BudgetDecision(
-        BudgetState.WARN,
-        BudgetThreshold.HALF,
-        "50%",
-        BigDecimal.valueOf(50),
-        BigDecimal.valueOf(100)
-    );
+        BudgetNotificationService service =
+                new BudgetNotificationService(handler, store);
 
-    service.notifyIfNeeded(decision50, targetId, window, Map.of());
-    service.notifyIfNeeded(decision50, targetId, window, Map.of());
+        String targetId = "user1";
+        String window = "2026-06";
 
-    verify(handler, times(1)).handle(any());
-  }
+        BudgetDecision decision50 = new BudgetDecision(
+                BudgetState.WARN,
+                BudgetThreshold.HALF,
+                "50%",
+                usd("50"),
+                usd("100")
+        );
 
-  @Test
-  void new_window_should_allow_notification_again() {
+        service.notifyIfNeeded(decision50, targetId, window, Map.of());
+        service.notifyIfNeeded(decision50, targetId, window, Map.of());
 
-    BudgetNotificationHandler handler = mock(BudgetNotificationHandler.class);
-    NotificationStateStore store = new InMemoryNotificationStateStore();
+        verify(handler, times(1)).handle(any());
+    }
 
-    BudgetNotificationService service =
-        new BudgetNotificationService(handler, store);
+    @Test
+    void new_window_should_allow_notification_again() {
 
-    String targetId = "user1";
+        BudgetNotificationHandler handler = mock(BudgetNotificationHandler.class);
+        NotificationStateStore store = new InMemoryNotificationStateStore();
 
-    BudgetDecision decision50 = new BudgetDecision(
-        BudgetState.WARN,
-        BudgetThreshold.HALF,
-        "50%",
-        BigDecimal.valueOf(50),
-        BigDecimal.valueOf(100)
-    );
+        BudgetNotificationService service =
+                new BudgetNotificationService(handler, store);
 
-    // 6월
-    service.notifyIfNeeded(decision50, targetId, "2026-06", Map.of());
+        String targetId = "user1";
 
-    // 7월 → 다시 발생해야 함
-    service.notifyIfNeeded(decision50, targetId, "2026-07", Map.of());
+        BudgetDecision decision50 = new BudgetDecision(
+                BudgetState.WARN,
+                BudgetThreshold.HALF,
+                "50%",
+                usd("50"),
+                usd("100")
+        );
 
-    verify(handler, times(2)).handle(any());
-  }
+        // 6월
+        service.notifyIfNeeded(decision50, targetId, "2026-06", Map.of());
+
+        // 7월 → 다시 발생해야 함
+        service.notifyIfNeeded(decision50, targetId, "2026-07", Map.of());
+
+        verify(handler, times(2)).handle(any());
+    }
 }

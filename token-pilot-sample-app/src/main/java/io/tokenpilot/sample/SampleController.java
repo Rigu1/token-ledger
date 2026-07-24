@@ -9,6 +9,7 @@ import io.tokenpilot.core.domain.Cost;
 import io.tokenpilot.core.domain.TokenUsage;
 
 import java.math.BigDecimal;
+import java.util.Currency;
 import java.util.Map;
 
 import org.springframework.beans.factory.ObjectProvider;
@@ -18,6 +19,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 public class SampleController {
+
+    private static final Currency USD = Currency.getInstance("USD");
 
     private final ApplicationContext applicationContext;
     private final LedgerManager ledgerManager;
@@ -84,11 +87,11 @@ public class SampleController {
         }
 
         Map<String, String> tags = Map.of("tenant_id", "budget-sample-tenant");
-        BudgetDecision initialDecision = evaluator.evaluate(tags, new BigDecimal("0.001"));
-        stateStore.addCost(tags, new BigDecimal("0.0045"));
+        BudgetDecision initialDecision = evaluator.evaluate(tags, Cost.of(new BigDecimal("0.001"), USD));
+        stateStore.addCost(tags, Cost.of(new BigDecimal("0.0045"), USD));
 
         try {
-            evaluator.evaluate(tags, new BigDecimal("0.001"));
+            evaluator.evaluate(tags, Cost.of(new BigDecimal("0.001"), USD));
             return Map.of(
                     "enabled", "true",
                     "initialState", initialDecision.state().name(),
@@ -100,8 +103,8 @@ public class SampleController {
                     "enabled", "true",
                     "initialState", initialDecision.state().name(),
                     "blockedState", blockedDecision.state().name(),
-                    "currentUsage", blockedDecision.currentUsage().toPlainString(),
-                    "limit", blockedDecision.limit().toPlainString()
+                    "currentUsage", blockedDecision.currentUsage().value().toPlainString(),
+                    "limit", blockedDecision.limit().value().toPlainString()
             );
         }
     }

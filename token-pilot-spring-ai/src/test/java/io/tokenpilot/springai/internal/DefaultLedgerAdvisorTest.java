@@ -41,9 +41,10 @@ class DefaultLedgerAdvisorTest {
         DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(ledgerManager, extractor);
 
         ChatResponseMetadata metadata = ChatResponseMetadata.builder()
-                .model("gpt-4o")
-                .build();
-        ChatResponse chatResponse = new ChatResponse(List.of(new Generation(new org.springframework.ai.chat.messages.AssistantMessage("test"))), metadata);
+                                                            .model("gpt-4o")
+                                                            .build();
+        ChatResponse chatResponse = new ChatResponse(
+                List.of(new Generation(new org.springframework.ai.chat.messages.AssistantMessage("test"))), metadata);
         Map<String, Object> context = Map.of("user_id", "user-123", "tenant_id", "tenant-abc");
         ChatClientResponse response = new ChatClientResponse(chatResponse, context);
 
@@ -52,8 +53,10 @@ class DefaultLedgerAdvisorTest {
         verify(ledgerManager, times(1)).record(
                 eq("gpt-4o"),
                 eq(mockUsage),
-                argThat(tags -> tags.get("user_id").equals("user-123") && 
-                               tags.get("tenant_id").equals("tenant-abc"))
+                argThat(tags -> tags.get("user_id")
+                                    .equals("user-123") &&
+                        tags.get("tenant_id")
+                            .equals("tenant-abc"))
         );
     }
 
@@ -67,26 +70,36 @@ class DefaultLedgerAdvisorTest {
         PricingRegistry pricingRegistry = mock(PricingRegistry.class);
 
         TokenUsage mockUsage = TokenUsage.from(100, 200);
-        PricingPlan mockPlan = new PricingPlan("gpt-4o", new BigDecimal("0.01"), new BigDecimal("0.03"), Currency.getInstance("USD"));
+        PricingPlan mockPlan = new PricingPlan("gpt-4o", new BigDecimal("0.01"), new BigDecimal("0.03"),
+                Currency.getInstance("USD"));
         Cost mockCost = new Cost(new BigDecimal("0.5"), Currency.getInstance("USD"));
 
         when(extractor.extract(any())).thenReturn(mockUsage);
         when(pricingRegistry.getPlan("gpt-4o")).thenReturn(Optional.of(mockPlan));
         when(costCalculator.calculate(mockUsage, mockPlan)).thenReturn(mockCost);
 
-        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(ledgerManager, extractor, 
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(ledgerManager, extractor,
                 null, budgetStateStore, costCalculator, pricingRegistry);
 
-        ChatResponseMetadata metadata = ChatResponseMetadata.builder().model("gpt-4o").build();
-        ChatResponse chatResponse = new ChatResponse(List.of(new Generation(new org.springframework.ai.chat.messages.AssistantMessage("test"))), metadata);
+        ChatResponseMetadata metadata = ChatResponseMetadata.builder()
+                                                            .model("gpt-4o")
+                                                            .build();
+        ChatResponse chatResponse = new ChatResponse(
+                List.of(new Generation(new org.springframework.ai.chat.messages.AssistantMessage("test"))), metadata);
         Map<String, Object> context = Map.of("tenant_id", "tenant-abc");
         ChatClientResponse response = new ChatClientResponse(chatResponse, context);
 
         advisor.after(response, mock(AdvisorChain.class));
 
         verify(budgetStateStore, times(1)).addCost(
-                argThat(tags -> tags.get("tenant_id").equals("tenant-abc")),
-                argThat(amount -> amount.compareTo(new BigDecimal("0.5")) == 0)
+                argThat(tags -> tags.get("tenant_id")
+                                    .equals("tenant-abc")),
+                argThat(cost ->
+                        cost.value()
+                            .compareTo(new BigDecimal("0.5")) == 0
+                                && cost.currency()
+                                       .equals(Currency.getInstance("USD"))
+                )
         );
     }
 
@@ -104,7 +117,8 @@ class DefaultLedgerAdvisorTest {
         advisor.before(request, mock(AdvisorChain.class));
 
         verify(budgetEvaluator, times(1)).evaluate(
-                argThat(tags -> tags.get("tenant_id").equals("tenant-abc"))
+                argThat(tags -> tags.get("tenant_id")
+                                    .equals("tenant-abc"))
         );
     }
 

@@ -19,6 +19,7 @@ import io.tokenpilot.notification.BudgetNotificationService;
 import io.tokenpilot.notification.NotificationStateStore;
 import io.tokenpilot.springai.LedgerAdvisor;
 import io.tokenpilot.springai.UsageExtractor;
+import java.util.Currency;
 import org.assertj.core.api.SoftAssertions;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -52,8 +53,11 @@ class TokenPilotAutoConfigurationTest {
     private static final String PROP_COMPLETION = PREFIX + ".rates.COMPLETION";
     private static final String PROP_CURRENCY = PREFIX + ".currency";
 
+    private static final Currency USD = Currency.getInstance("USD");
+
+
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
-        .withConfiguration(AutoConfigurations.of(TokenPilotAutoConfiguration.class));
+            .withConfiguration(AutoConfigurations.of(TokenPilotAutoConfiguration.class));
 
     @Test
     @DisplayName("기본 설정에서 Core 및 Spring AI 빈은 등록되고, Budget 빈은 등록되지 않아야 한다")
@@ -89,231 +93,233 @@ class TokenPilotAutoConfigurationTest {
     @MethodSource("providePricingConfigs")
     @DisplayName("설정 프로퍼티가 PricingProvider 빈과 환경에 정확하게 바인딩되어야 한다")
     void shouldBindPropertiesToEnvironmentAndBean(
-        String modelId,
-        String promptRate,
-        String completionRate,
-        String currency
+            String modelId,
+            String promptRate,
+            String completionRate,
+            String currency
     ) {
         this.contextRunner
-            .withPropertyValues(buildProperties(
-                modelId,
-                promptRate,
-                completionRate,
-                currency
-            ))
-            .run(context -> {
-                assertThat(context).hasSingleBean(PricingProvider.class);
+                .withPropertyValues(buildProperties(
+                        modelId,
+                        promptRate,
+                        completionRate,
+                        currency
+                ))
+                .run(context -> {
+                    assertThat(context).hasSingleBean(PricingProvider.class);
 
-                var env = context.getEnvironment();
-                var plans = context.getBean(PricingProvider.class)
-                    .getAllPlans();
+                    var env = context.getEnvironment();
+                    var plans = context.getBean(PricingProvider.class)
+                                       .getAllPlans();
 
-                SoftAssertions.assertSoftly(softly -> {
-                    softly.assertThat(env.getProperty(PROP_MODEL_ID))
-                        .isEqualTo(modelId);
-                    softly.assertThat(env.getProperty(PROP_PROMPT))
-                        .isEqualTo(promptRate);
-                    softly.assertThat(env.getProperty(PROP_COMPLETION))
-                        .isEqualTo(completionRate);
-                    softly.assertThat(env.getProperty(PROP_CURRENCY))
-                        .isEqualTo(currency);
+                    SoftAssertions.assertSoftly(softly -> {
+                        softly.assertThat(env.getProperty(PROP_MODEL_ID))
+                              .isEqualTo(modelId);
+                        softly.assertThat(env.getProperty(PROP_PROMPT))
+                              .isEqualTo(promptRate);
+                        softly.assertThat(env.getProperty(PROP_COMPLETION))
+                              .isEqualTo(completionRate);
+                        softly.assertThat(env.getProperty(PROP_CURRENCY))
+                              .isEqualTo(currency);
 
-                    softly.assertThat(plans)
-                        .hasSize(1);
+                        softly.assertThat(plans)
+                              .hasSize(1);
 
-                    PricingPlan plan = plans.iterator()
-                        .next();
+                        PricingPlan plan = plans.iterator()
+                                                .next();
 
-                    softly.assertThat(plan.modelId())
-                        .isEqualTo(modelId);
-                    softly.assertThat(plan.currency()
-                            .getCurrencyCode())
-                        .isEqualTo(currency);
-                    softly.assertThat(plan.getRate(PROMPT))
-                        .isEqualByComparingTo(promptRate);
-                    softly.assertThat(plan.getRate(COMPLETION))
-                        .isEqualByComparingTo(completionRate);
+                        softly.assertThat(plan.modelId())
+                              .isEqualTo(modelId);
+                        softly.assertThat(plan.currency()
+                                              .getCurrencyCode())
+                              .isEqualTo(currency);
+                        softly.assertThat(plan.getRate(PROMPT))
+                              .isEqualByComparingTo(promptRate);
+                        softly.assertThat(plan.getRate(COMPLETION))
+                              .isEqualByComparingTo(completionRate);
+                    });
                 });
-            });
     }
 
     @Test
     @DisplayName("설정된 가격 정책이 PricingRegistry와 LedgerManager 비용 계산에 연결되어야 한다")
     void shouldRegisterConfiguredPricingPlansInRegistry() {
         this.contextRunner
-            .withPropertyValues(buildProperties(
-                "gpt-4o",
-                "0.005",
-                "0.015",
-                "USD"
-            ))
-            .run(context -> {
-                PricingRegistry pricingRegistry = context.getBean(PricingRegistry.class);
-                LedgerManager ledgerManager = context.getBean(LedgerManager.class);
+                .withPropertyValues(buildProperties(
+                        "gpt-4o",
+                        "0.005",
+                        "0.015",
+                        "USD"
+                ))
+                .run(context -> {
+                    PricingRegistry pricingRegistry = context.getBean(PricingRegistry.class);
+                    LedgerManager ledgerManager = context.getBean(LedgerManager.class);
 
-                var plan = pricingRegistry.getPlan("gpt-4o");
-                Cost cost = ledgerManager.record(
-                    "gpt-4o",
-                    TokenUsage.from(1_000, 2_000),
-                    Map.of()
-                );
+                    var plan = pricingRegistry.getPlan("gpt-4o");
+                    Cost cost = ledgerManager.record(
+                            "gpt-4o",
+                            TokenUsage.from(1_000, 2_000),
+                            Map.of()
+                    );
 
-                SoftAssertions.assertSoftly(softly -> {
-                    softly.assertThat(plan)
-                        .isPresent();
-                    softly.assertThat(plan.orElseThrow()
-                            .getRate(PROMPT))
-                        .isEqualByComparingTo("0.005");
-                    softly.assertThat(plan.orElseThrow()
-                            .getRate(COMPLETION))
-                        .isEqualByComparingTo("0.015");
-                    softly.assertThat(cost.value())
-                        .isEqualByComparingTo("0.035000");
-                    softly.assertThat(cost.currency()
-                            .getCurrencyCode())
-                        .isEqualTo("USD");
+                    SoftAssertions.assertSoftly(softly -> {
+                        softly.assertThat(plan)
+                              .isPresent();
+                        softly.assertThat(plan.orElseThrow()
+                                              .getRate(PROMPT))
+                              .isEqualByComparingTo("0.005");
+                        softly.assertThat(plan.orElseThrow()
+                                              .getRate(COMPLETION))
+                              .isEqualByComparingTo("0.015");
+                        softly.assertThat(cost.value())
+                              .isEqualByComparingTo("0.035000");
+                        softly.assertThat(cost.currency()
+                                              .getCurrencyCode())
+                              .isEqualTo("USD");
+                    });
                 });
-            });
     }
 
     @Test
     @DisplayName("token-pilot.budget.enabled=true 일 때 Budget 관련 빈이 등록되어야 한다")
     void shouldRegisterBudgetBeansWhenEnabled() {
         this.contextRunner
-            .withPropertyValues("token-pilot.budget.enabled=true")
-            .run(context -> {
-                assertThat(context).hasSingleBean(BudgetStateStore.class);
-                assertThat(context).hasSingleBean(BudgetEvaluator.class);
-            });
+                .withPropertyValues("token-pilot.budget.enabled=true")
+                .run(context -> {
+                    assertThat(context).hasSingleBean(BudgetStateStore.class);
+                    assertThat(context).hasSingleBean(BudgetEvaluator.class);
+                });
     }
 
     @Test
     @DisplayName("Budget가 활성화되면 LedgerAdvisor가 BudgetEvaluator를 사용해야 한다")
     void shouldWireBudgetEvaluatorIntoLedgerAdvisorWhenBudgetEnabled() {
         this.contextRunner
-            .withUserConfiguration(RecordingBudgetEvaluatorConfiguration.class)
-            .withPropertyValues("token-pilot.budget.enabled=true")
-            .run(context -> {
-                LedgerAdvisor advisor = context.getBean(LedgerAdvisor.class);
-                RecordingBudgetEvaluator evaluator = context.getBean(RecordingBudgetEvaluator.class);
+                .withUserConfiguration(RecordingBudgetEvaluatorConfiguration.class)
+                .withPropertyValues("token-pilot.budget.enabled=true")
+                .run(context -> {
+                    LedgerAdvisor advisor = context.getBean(LedgerAdvisor.class);
+                    RecordingBudgetEvaluator evaluator = context.getBean(RecordingBudgetEvaluator.class);
 
-                ChatClientRequest request = mock(ChatClientRequest.class);
-                when(request.context()).thenReturn(Map.of("tenant_id", "tenant-abc"));
+                    ChatClientRequest request = mock(ChatClientRequest.class);
+                    when(request.context()).thenReturn(Map.of("tenant_id", "tenant-abc"));
 
-                advisor.before(request, mock(AdvisorChain.class));
+                    advisor.before(request, mock(AdvisorChain.class));
 
-                SoftAssertions.assertSoftly(softly -> {
-                    softly.assertThat(evaluator.evaluateCalls())
-                        .isEqualTo(1);
-                    softly.assertThat(evaluator.lastTags())
-                        .containsEntry("tenant_id", "tenant-abc");
+                    SoftAssertions.assertSoftly(softly -> {
+                        softly.assertThat(evaluator.evaluateCalls())
+                              .isEqualTo(1);
+                        softly.assertThat(evaluator.lastTags())
+                              .containsEntry("tenant_id", "tenant-abc");
+                    });
                 });
-            });
     }
 
     @Test
     @DisplayName("token-pilot.budget.enabled=false 일 때 Budget 관련 빈이 등록되지 않아야 한다")
     void shouldNotRegisterBudgetBeansWhenDisabled() {
         this.contextRunner
-            .withPropertyValues("token-pilot.budget.enabled=false")
-            .run(context -> {
-                assertThat(context).doesNotHaveBean(BudgetStateStore.class);
-                assertThat(context).doesNotHaveBean(BudgetEvaluator.class);
-            });
+                .withPropertyValues("token-pilot.budget.enabled=false")
+                .run(context -> {
+                    assertThat(context).doesNotHaveBean(BudgetStateStore.class);
+                    assertThat(context).doesNotHaveBean(BudgetEvaluator.class);
+                });
     }
 
     @Test
     @DisplayName("MeterRegistry가 존재할 때 Micrometer 관련 빈이 등록되어야 한다")
     void shouldRegisterMicrometerBeanWhenMeterRegistryExists() {
         this.contextRunner
-            .withUserConfiguration(MeterRegistryConfiguration.class)
-            .run(context -> {
-                assertThat(context).hasBean("microCostMetricsPublisher");
-            });
+                .withUserConfiguration(MeterRegistryConfiguration.class)
+                .run(context -> {
+                    assertThat(context).hasBean("microCostMetricsPublisher");
+                });
     }
 
     @Test
     @DisplayName("token-pilot.metrics.enabled=false 일 때 Micrometer 관련 빈이 등록되지 않아야 한다")
     void shouldNotRegisterMicrometerBeanWhenMetricsDisabled() {
         this.contextRunner
-            .withUserConfiguration(MeterRegistryConfiguration.class)
-            .withPropertyValues("token-pilot.metrics.enabled=false")
-            .run(context -> {
-                assertThat(context).doesNotHaveBean("microCostMetricsPublisher");
-            });
+                .withUserConfiguration(MeterRegistryConfiguration.class)
+                .withPropertyValues("token-pilot.metrics.enabled=false")
+                .run(context -> {
+                    assertThat(context).doesNotHaveBean("microCostMetricsPublisher");
+                });
     }
 
     @Test
     @DisplayName("사용자 정의 빈이 있으면 자동 설정 빈이 덮어쓰지 않아야 한다")
     void shouldNotOverrideUserDefinedBeans() {
         this.contextRunner
-            .withUserConfiguration(UserCustomConfiguration.class)
-            .run(context -> {
-                assertThat(context).hasSingleBean(PricingRegistry.class);
-                assertThat(context.getBean(PricingRegistry.class))
-                    .isInstanceOf(UserCustomPricingRegistry.class);
-            });
+                .withUserConfiguration(UserCustomConfiguration.class)
+                .run(context -> {
+                    assertThat(context).hasSingleBean(PricingRegistry.class);
+                    assertThat(context.getBean(PricingRegistry.class))
+                            .isInstanceOf(UserCustomPricingRegistry.class);
+                });
     }
 
     @Test
     @DisplayName("token-pilot.notification.enabled=false 일 때 Notification 관련 빈이 등록되지 않아야 한다")
     void shouldNotRegisterNotificationBeansWhenDisabled() {
         this.contextRunner
-            .withPropertyValues("token-pilot.notification.enabled=false")
-            .run(context -> {
-                assertThat(context).doesNotHaveBean(NotificationStateStore.class);
-                assertThat(context).doesNotHaveBean(BudgetNotificationService.class);
-            });
+                .withPropertyValues("token-pilot.notification.enabled=false")
+                .run(context -> {
+                    assertThat(context).doesNotHaveBean(NotificationStateStore.class);
+                    assertThat(context).doesNotHaveBean(BudgetNotificationService.class);
+                });
     }
 
     @Test
     @DisplayName("notification이 활성화되어도 BudgetNotificationHandler 빈이 없으면 서비스가 등록되지 않아야 한다")
     void shouldNotRegisterNotificationServiceWhenHandlerMissing() {
         this.contextRunner
-            .withPropertyValues("token-pilot.notification.enabled=true")
-            .run(context -> {
-                assertThat(context).hasSingleBean(NotificationStateStore.class);
-                assertThat(context).doesNotHaveBean(BudgetNotificationService.class);
-            });
+                .withPropertyValues("token-pilot.notification.enabled=true")
+                .run(context -> {
+                    assertThat(context).hasSingleBean(NotificationStateStore.class);
+                    assertThat(context).doesNotHaveBean(BudgetNotificationService.class);
+                });
     }
 
     @Test
     @DisplayName("notification이 활성화되고 BudgetNotificationHandler 빈이 있을 때 BudgetNotificationService가 등록되어야 한다")
     void shouldRegisterNotificationServiceWhenEnabledAndHandlerExists() {
         this.contextRunner
-            .withUserConfiguration(FakeBudgetNotificationHandlerConfiguration.class)
-            .withPropertyValues("token-pilot.notification.enabled=true")
-            .run(context -> {
-                assertThat(context).hasSingleBean(NotificationStateStore.class);
-                assertThat(context).hasSingleBean(BudgetNotificationService.class);
-                assertThat(context.getBean(TokenPilotProperties.class).getNotification().isEnabled())
-                    .isTrue();
-            });
+                .withUserConfiguration(FakeBudgetNotificationHandlerConfiguration.class)
+                .withPropertyValues("token-pilot.notification.enabled=true")
+                .run(context -> {
+                    assertThat(context).hasSingleBean(NotificationStateStore.class);
+                    assertThat(context).hasSingleBean(BudgetNotificationService.class);
+                    assertThat(context.getBean(TokenPilotProperties.class)
+                                      .getNotification()
+                                      .isEnabled())
+                            .isTrue();
+                });
     }
 
     private static Stream<Arguments> providePricingConfigs() {
         return Stream.of(
-            argumentSet(
-                "OpenAI GPT-4o 표준 설정",
-                "gpt-4o",
-                "0.005",
-                "0.015",
-                "USD"),
-            argumentSet(
-                "Anthropic Claude-3 EUR 설정",
-                "claude-3",
-                "0.01",
-                "0.03",
-                "EUR")
+                argumentSet(
+                        "OpenAI GPT-4o 표준 설정",
+                        "gpt-4o",
+                        "0.005",
+                        "0.015",
+                        "USD"),
+                argumentSet(
+                        "Anthropic Claude-3 EUR 설정",
+                        "claude-3",
+                        "0.01",
+                        "0.03",
+                        "EUR")
         );
     }
 
     private String[] buildProperties(String modelId, String promptRate, String completionRate, String currency) {
         return new String[]{
-            PROP_MODEL_ID + "=" + modelId,
-            PROP_PROMPT + "=" + promptRate,
-            PROP_COMPLETION + "=" + completionRate,
-            PROP_CURRENCY + "=" + currency
+                PROP_MODEL_ID + "=" + modelId,
+                PROP_PROMPT + "=" + promptRate,
+                PROP_COMPLETION + "=" + completionRate,
+                PROP_CURRENCY + "=" + currency
         };
     }
 
@@ -326,8 +332,14 @@ class TokenPilotAutoConfigurationTest {
     }
 
     static class UserCustomPricingRegistry implements PricingRegistry {
-        @Override public void registerPlan(PricingPlan plan) {}
-        @Override public Optional<PricingPlan> getPlan(String modelId) { return Optional.empty(); }
+        @Override
+        public void registerPlan(PricingPlan plan) {
+        }
+
+        @Override
+        public Optional<PricingPlan> getPlan(String modelId) {
+            return Optional.empty();
+        }
     }
 
     @Configuration(proxyBeanMethods = false)
@@ -346,11 +358,16 @@ class TokenPilotAutoConfigurationTest {
         public BudgetDecision evaluate(Map<String, String> tags) {
             this.evaluateCalls++;
             this.lastTags = tags;
-            return new BudgetDecision(BudgetState.ALLOW, BudgetThreshold.NONE, "allowed", BigDecimal.ZERO, BigDecimal.TEN);
+            return new BudgetDecision(
+                    BudgetState.ALLOW,
+                    BudgetThreshold.NONE,
+                    "allowed",
+                    usd("0"),
+                    usd("10"));
         }
 
         @Override
-        public BudgetDecision evaluate(Map<String, String> tags, BigDecimal costAmount) {
+        public BudgetDecision evaluate(Map<String, String> tags, Cost cost) {
             return evaluate(tags);
         }
 
@@ -376,7 +393,12 @@ class TokenPilotAutoConfigurationTest {
     static class FakeBudgetNotificationHandlerConfiguration {
         @Bean
         public BudgetNotificationHandler budgetNotificationHandler() {
-            return event -> {};
+            return event -> {
+            };
         }
+    }
+
+    private static Cost usd(String amount) {
+        return Cost.of(new BigDecimal(amount), USD);
     }
 }

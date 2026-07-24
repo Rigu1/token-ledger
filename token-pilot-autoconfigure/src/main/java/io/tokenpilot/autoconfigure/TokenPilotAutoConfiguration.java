@@ -9,11 +9,13 @@ import io.tokenpilot.core.LedgerListener;
 import io.tokenpilot.core.LedgerManager;
 import io.tokenpilot.core.PricingProvider;
 import io.tokenpilot.core.PricingRegistry;
+import io.tokenpilot.core.domain.Cost;
 import io.tokenpilot.core.internal.LedgerComponents;
 import io.tokenpilot.micrometer.internal.LedgerMicrometerComponents;
 import io.tokenpilot.springai.LedgerAdvisor;
 import io.tokenpilot.springai.UsageExtractor;
 import io.tokenpilot.springai.internal.LedgerSpringAiComponents;
+import java.util.Currency;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -56,7 +58,8 @@ public class TokenPilotAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public PricingRegistry pricingRegistry(ObjectProvider<PricingProvider> pricingProviders) {
-        return LedgerComponents.inMemoryPricingRegistry(pricingProviders.orderedStream().toList());
+        return LedgerComponents.inMemoryPricingRegistry(pricingProviders.orderedStream()
+                                                                        .toList());
     }
 
     /**
@@ -165,15 +168,24 @@ public class TokenPilotAutoConfiguration {
     @ConditionalOnMissingBean
     @ConditionalOnClass(LedgerBudgetComponents.class)
     @ConditionalOnProperty(prefix = "token-pilot.budget", name = "enabled", havingValue = "true")
-    public BudgetEvaluator budgetEvaluator(BudgetStateStore budgetStateStore, TokenPilotProperties properties) {
-        return LedgerBudgetComponents.defaultBudgetEvaluator(budgetStateStore, properties.getBudget()
-                                                                                         .getMonthlyLimit());
+    public BudgetEvaluator budgetEvaluator(
+            BudgetStateStore budgetStateStore,
+            TokenPilotProperties properties
+    ) {
+        Cost monthlyLimit = Cost.of(
+                properties.getBudget()
+                          .getMonthlyLimit(),
+                Currency.getInstance("USD")
+        );
+
+        return LedgerBudgetComponents.defaultBudgetEvaluator(
+                budgetStateStore,
+                monthlyLimit
+        );
     }
 
     /**
-     * 알림 상태 저장소를 등록합니다.
-     * - 중복 알림 방지를 위해 window 단위로 상태를 저장
-     * - token-pilot.notification.enabled=true 일 때만 등록
+     * 알림 상태 저장소를 등록합니다. - 중복 알림 방지를 위해 window 단위로 상태를 저장 - token-pilot.notification.enabled=true 일 때만 등록
      */
     @Bean
     @ConditionalOnMissingBean
@@ -183,18 +195,16 @@ public class TokenPilotAutoConfiguration {
     }
 
     /**
-     * 예산 알림 서비스를 등록합니다.
-     * - BudgetNotificationHandler 빈이 있을 때만 등록
-     * - 없으면 no-op으로 동작 (알림 서비스 자체가 등록되지 않음)
-     * - token-pilot.notification.enabled=true 일 때만 등록
+     * 예산 알림 서비스를 등록합니다. - BudgetNotificationHandler 빈이 있을 때만 등록 - 없으면 no-op으로 동작 (알림 서비스 자체가 등록되지 않음) -
+     * token-pilot.notification.enabled=true 일 때만 등록
      */
     @Bean
     @ConditionalOnMissingBean
     @ConditionalOnBean(BudgetNotificationHandler.class)
     @ConditionalOnProperty(prefix = "token-pilot.notification", name = "enabled", havingValue = "true")
     public BudgetNotificationService budgetNotificationService(
-        BudgetNotificationHandler handler,
-        NotificationStateStore notificationStateStore
+            BudgetNotificationHandler handler,
+            NotificationStateStore notificationStateStore
     ) {
         return new BudgetNotificationService(handler, notificationStateStore);
     }

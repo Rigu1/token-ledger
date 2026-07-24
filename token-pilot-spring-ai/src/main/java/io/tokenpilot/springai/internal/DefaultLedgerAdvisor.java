@@ -68,7 +68,7 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
             Optional<PricingPlan> plan = pricingRegistry.getPlan(modelId);
             if (plan.isPresent()) {
                 Cost cost = costCalculator.calculate(usage, plan.get());
-                budgetStateStore.addCost(tags, cost.value());
+                budgetStateStore.addCost(tags, cost);
             }
         }
 

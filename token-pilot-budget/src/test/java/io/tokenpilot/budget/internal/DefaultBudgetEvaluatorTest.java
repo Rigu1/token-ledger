@@ -5,10 +5,13 @@ import io.tokenpilot.budget.BudgetState;
 import io.tokenpilot.budget.BudgetThreshold;
 import io.tokenpilot.budget.BudgetStateStore;
 import io.tokenpilot.budget.exception.BudgetExceededException;
+import io.tokenpilot.core.domain.Cost;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.util.Currency;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.*;
@@ -16,102 +19,87 @@ import static org.mockito.Mockito.*;
 
 class DefaultBudgetEvaluatorTest {
 
-  private BudgetStateStore store;
-  private DefaultBudgetEvaluator evaluator;
+    private BudgetStateStore store;
+    private DefaultBudgetEvaluator evaluator;
 
-  private static final BigDecimal MONTHLY_LIMIT = new BigDecimal("100.00");
-  private static final Map<String, String> TAGS = Map.of("service", "test");
+    private static final Currency USD = Currency.getInstance("USD");
+    private static final Cost MONTHLY_LIMIT = usd("100.00");
+    private static final Map<String, String> TAGS = Map.of("service", "test");
 
-  @BeforeEach
-  void setUp() {
-    store = mock(BudgetStateStore.class);
-    evaluator = new DefaultBudgetEvaluator(store, MONTHLY_LIMIT);
-  }
+    @BeforeEach
+    void setUp() {
+        store = mock(BudgetStateStore.class);
+        evaluator = new DefaultBudgetEvaluator(store, MONTHLY_LIMIT);
+    }
 
-  // ─── evaluate(tags, costAmount) ───────────────────────────────────────────
+    @Test
+    @DisplayName("사용량이 50퍼센트 미만이면 ALLOW/NONE이다")
+    void shouldReturnAllowAndNoneWhenUsageIsBelow50Percent() {
+        when(store.getAccumulatedCost(TAGS, USD))
+                .thenReturn(usd("10.00"), usd("30.00"));
 
-  @Test
-  void 정상_범위_사용() {
-    when(store.getAccumulatedCost(TAGS)).thenReturn(new BigDecimal("10.00"));
+        BudgetDecision withCost = evaluator.evaluate(TAGS, usd("10.00"));
+        BudgetDecision currentOnly = evaluator.evaluate(TAGS);
 
-    BudgetDecision result = evaluator.evaluate(TAGS, new BigDecimal("10.00"));
+        assertDecision(withCost, BudgetState.ALLOW, BudgetThreshold.NONE);
+        assertDecision(currentOnly, BudgetState.ALLOW, BudgetThreshold.NONE);
+    }
 
-    assertThat(result.state()).isEqualTo(BudgetState.ALLOW);
-    assertThat(result.threshold()).isEqualTo(BudgetThreshold.NONE);
-  }
+    @Test
+    @DisplayName("사용량이 50퍼센트 이상이면 ALLOW/HALF이다")
+    void shouldReturnAllowAndHalfWhenUsageIsAtLeast50Percent() {
+        when(store.getAccumulatedCost(TAGS, USD))
+                .thenReturn(usd("40.00"), usd("50.00"));
 
-  @Test
-  void 누적_50퍼센트_이상() {
-    when(store.getAccumulatedCost(TAGS)).thenReturn(new BigDecimal("40.00"));
+        BudgetDecision withCost = evaluator.evaluate(TAGS, usd("10.00"));
+        BudgetDecision currentOnly = evaluator.evaluate(TAGS);
 
-    BudgetDecision result = evaluator.evaluate(TAGS, new BigDecimal("10.00"));
+        assertDecision(withCost, BudgetState.ALLOW, BudgetThreshold.HALF);
+        assertDecision(currentOnly, BudgetState.ALLOW, BudgetThreshold.HALF);
+    }
 
-    assertThat(result.state()).isEqualTo(BudgetState.ALLOW);
-    assertThat(result.threshold()).isEqualTo(BudgetThreshold.HALF);
-  }
+    @Test
+    @DisplayName("사용량이 80퍼센트 이상이면 WARN/WARNING이다")
+    void shouldReturnWarnAndWarningWhenUsageIsAtLeast80Percent() {
+        when(store.getAccumulatedCost(TAGS, USD))
+                .thenReturn(usd("70.00"), usd("80.00"));
 
-  @Test
-  void 누적_80퍼센트_이상() {
-    when(store.getAccumulatedCost(TAGS)).thenReturn(new BigDecimal("70.00"));
+        BudgetDecision withCost = evaluator.evaluate(TAGS, usd("10.00"));
+        BudgetDecision currentOnly = evaluator.evaluate(TAGS);
 
-    BudgetDecision result = evaluator.evaluate(TAGS, new BigDecimal("10.00"));
+        assertDecision(withCost, BudgetState.WARN, BudgetThreshold.WARNING);
+        assertDecision(currentOnly, BudgetState.WARN, BudgetThreshold.WARNING);
+    }
 
-    assertThat(result.state()).isEqualTo(BudgetState.WARN);
-    assertThat(result.threshold()).isEqualTo(BudgetThreshold.WARNING);
-  }
+    @Test
+    @DisplayName("사용량이 100퍼센트 이상이면 BLOCK/EXCEEDED이다")
+    void shouldThrowBudgetExceededExceptionWhenUsageIsAtLeast100Percent() {
+        when(store.getAccumulatedCost(TAGS, USD))
+                .thenReturn(usd("95.00"), usd("100.00"));
 
-  @Test
-  void 예산_초과시_예외_발생() {
-    when(store.getAccumulatedCost(TAGS)).thenReturn(new BigDecimal("95.00"));
+        assertThatThrownBy(() -> evaluator.evaluate(TAGS, usd("10.00")))
+                .isInstanceOf(BudgetExceededException.class)
+                .extracting(e -> ((BudgetExceededException) e).getDecision())
+                .satisfies(decision -> {
+                    assertThat(decision.state()).isEqualTo(BudgetState.BLOCK);
+                    assertThat(decision.threshold()).isEqualTo(BudgetThreshold.EXCEEDED);
+                });
 
-    assertThatThrownBy(() -> evaluator.evaluate(TAGS, new BigDecimal("10.00")))
-        .isInstanceOf(BudgetExceededException.class)
-        .extracting(e -> ((BudgetExceededException) e).getDecision())
-        .satisfies(decision -> {
-          assertThat(decision.state()).isEqualTo(BudgetState.BLOCK);
-          assertThat(decision.threshold()).isEqualTo(BudgetThreshold.EXCEEDED);
-        });
-  }
+        BudgetDecision currentOnly = evaluator.evaluate(TAGS);
 
-  // ─── evaluate(tags) ───────────────────────────────────────────────────────
+        assertDecision(currentOnly, BudgetState.BLOCK, BudgetThreshold.EXCEEDED);
+    }
 
-  @Test
-  void 현재_사용량_정상() {
-    when(store.getAccumulatedCost(TAGS)).thenReturn(new BigDecimal("30.00"));
+    private static Cost usd(String amount) {
+        return Cost.of(new BigDecimal(amount), USD);
+    }
 
-    BudgetDecision result = evaluator.evaluate(TAGS);
-
-    assertThat(result.state()).isEqualTo(BudgetState.ALLOW);
-    assertThat(result.threshold()).isEqualTo(BudgetThreshold.NONE);
-  }
-
-  @Test
-  void 현재_사용량_50퍼센트_이상() {
-    when(store.getAccumulatedCost(TAGS)).thenReturn(new BigDecimal("50.00"));
-
-    BudgetDecision result = evaluator.evaluate(TAGS);
-
-    assertThat(result.state()).isEqualTo(BudgetState.ALLOW);
-    assertThat(result.threshold()).isEqualTo(BudgetThreshold.HALF);
-  }
-
-  @Test
-  void 현재_사용량_80퍼센트_이상() {
-    when(store.getAccumulatedCost(TAGS)).thenReturn(new BigDecimal("80.00"));
-
-    BudgetDecision result = evaluator.evaluate(TAGS);
-
-    assertThat(result.state()).isEqualTo(BudgetState.WARN);
-    assertThat(result.threshold()).isEqualTo(BudgetThreshold.WARNING);
-  }
-
-  @Test
-  void 현재_사용량_100퍼센트_이상() {
-    when(store.getAccumulatedCost(TAGS)).thenReturn(new BigDecimal("100.00"));
-
-    BudgetDecision result = evaluator.evaluate(TAGS);
-
-    assertThat(result.state()).isEqualTo(BudgetState.BLOCK);
-    assertThat(result.threshold()).isEqualTo(BudgetThreshold.EXCEEDED);
-  }
+    private static void assertDecision(
+            BudgetDecision decision,
+            BudgetState state,
+            BudgetThreshold threshold
+    ) {
+        assertThat(decision.state()).isEqualTo(state);
+        assertThat(decision.threshold()).isEqualTo(threshold);
+    }
 }

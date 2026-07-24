@@ -2,35 +2,34 @@ package io.tokenpilot.budget.internal;
 
 import io.tokenpilot.budget.BudgetStateStore;
 
+import io.tokenpilot.core.domain.Cost;
 import java.math.BigDecimal;
+import java.util.Currency;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 
 /**
  * BudgetStateStore의 인메모리 기반 구현체입니다.
- *
- * 예산 사용량을 메모리 내에서 누적 관리하며,
- * 테스트 및 간단한 실행 환경을 위한 구현입니다.
+ * <p>
+ * 예산 사용량을 메모리 내에서 누적 관리하며, 테스트 및 간단한 실행 환경을 위한 구현입니다.
  */
 
 public class InMemoryBudgetStateStore implements BudgetStateStore {
 
-  private final Map<String, BigDecimal> store = new ConcurrentHashMap<>();
+    private final Map<String, Cost> store = new ConcurrentHashMap<>();
 
-  private String key(Map<String, String> tags) {
-    return tags.getOrDefault("tenant_id", "default");
-  }
+    private String key(Map<String, String> tags) {
+        return tags.getOrDefault("tenant_id", "default");
+    }
 
-  @Override
-  public BigDecimal getAccumulatedCost(Map<String, String> tags) {
-    // 아직 사용 기록이 없으면 0원
-    return store.getOrDefault(key(tags), BigDecimal.ZERO);
-  }
+    @Override
+    public Cost getAccumulatedCost(Map<String, String> tags, Currency currency) {
+        return store.getOrDefault(key(tags), Cost.zero(currency));
+    }
 
-  @Override
-  public void addCost(Map<String, String> tags, BigDecimal amount) {
-    // 기존 값에 amount를 더함
-    store.merge(key(tags), amount, BigDecimal::add);
-  }
+    @Override
+    public void addCost(Map<String, String> tags, Cost cost) {
+        store.merge(key(tags), cost, Cost::add);
+    }
 }
