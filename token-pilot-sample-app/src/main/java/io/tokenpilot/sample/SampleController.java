@@ -72,7 +72,7 @@ public class SampleController {
 
         return Map.of(
                 "modelId", "gpt-4o-mini",
-                "cost", cost.value().toPlainString(),
+                "cost", CostBoundaryFormatter.format(cost),
                 "currency", cost.currency().getCurrencyCode()
         );
     }
