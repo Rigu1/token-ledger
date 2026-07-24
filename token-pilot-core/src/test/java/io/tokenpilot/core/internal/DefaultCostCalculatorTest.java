@@ -64,8 +64,8 @@ class DefaultCostCalculatorTest {
     }
 
     @Test
-    @DisplayName("1,000 token은 1K 단가 그대로 계산되어야 한다")
-    void shouldUseRateAsCostForOneThousandTokens() {
+    @DisplayName("1 token 비용은 1K 단가를 decimal shift로 정확히 계산해야 한다")
+    void shouldCalculateOneTokenCostWithDecimalShift() {
         PricingPlan plan = new PricingPlan(
                 "tiny-model",
                 new BigDecimal("0.0004"),
@@ -76,5 +76,20 @@ class DefaultCostCalculatorTest {
         Cost cost = calculator.calculate(usage, plan);
 
         assertThat(cost.value()).isEqualByComparingTo("0.0000004");
+    }
+
+    @Test
+    @DisplayName("1,000 token 비용은 1K 단가 그대로 계산되어야 한다")
+    void shouldUseRateAsCostForOneThousandTokens() {
+        PricingPlan plan = new PricingPlan(
+                "tiny-model",
+                new BigDecimal("0.0004"),
+                BigDecimal.ZERO
+        );
+        TokenUsage usage = TokenUsage.from(1000, 0);
+
+        Cost cost = calculator.calculate(usage, plan);
+
+        assertThat(cost.value()).isEqualByComparingTo("0.0004");
     }
 }
