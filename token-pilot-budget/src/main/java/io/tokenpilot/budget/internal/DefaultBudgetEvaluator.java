@@ -29,8 +29,12 @@ public class DefaultBudgetEvaluator implements BudgetEvaluator {
             Map<String, String> tags,
             Cost cost
     ) {
-
         Cost currentUsage = store.getAccumulatedCost(tags, monthlyLimit.currency());
+
+        if (hasCurrencyMismatch(cost)) {
+            return currencyMismatchDecision(currentUsage);
+        }
+
         Cost newUsage = currentUsage.add(cost);
 
         Cost halfThreshold = threshold(BigDecimal.valueOf(0.5));
@@ -130,6 +134,20 @@ public class DefaultBudgetEvaluator implements BudgetEvaluator {
         return Cost.of(
                 monthlyLimit.value().multiply(rate),
                 monthlyLimit.currency()
+        );
+    }
+
+    private boolean hasCurrencyMismatch(Cost cost) {
+        return !monthlyLimit.currency().equals(cost.currency());
+    }
+
+    private BudgetDecision currencyMismatchDecision(Cost currentUsage) {
+        return new BudgetDecision(
+                BudgetState.CURRENCY_MISMATCH,
+                BudgetThreshold.NONE,
+                "예산 통화와 비용 통화가 일치하지 않습니다",
+                currentUsage,
+                monthlyLimit
         );
     }
 }

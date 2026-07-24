@@ -23,6 +23,8 @@ class DefaultBudgetEvaluatorTest {
     private DefaultBudgetEvaluator evaluator;
 
     private static final Currency USD = Currency.getInstance("USD");
+    private static final Currency KRW = Currency.getInstance("KRW");
+
     private static final Cost MONTHLY_LIMIT = usd("100.00");
     private static final Map<String, String> TAGS = Map.of("service", "test");
 
@@ -90,8 +92,39 @@ class DefaultBudgetEvaluatorTest {
         assertDecision(currentOnly, BudgetState.BLOCK, BudgetThreshold.EXCEEDED);
     }
 
+    @Test
+    @DisplayName("evaluate는 BudgetStateStore에 비용을 누적하지 않는다")
+    void shouldNotMutateStoreWhenEvaluatingBudget() {
+        when(store.getAccumulatedCost(TAGS, USD))
+                .thenReturn(usd("10.00"));
+
+        evaluator.evaluate(TAGS, usd("20.00"));
+
+        verify(store, never()).addCost(any(), any());
+    }
+
+    @Test
+    @DisplayName("예산 통화와 비용 통화가 다르면 CURRENCY_MISMATCH를 반환하고 상태를 변경하지 않는다")
+    void shouldReturnCurrencyMismatchWithoutChangingStateWhenCostCurrencyDiffers() {
+        when(store.getAccumulatedCost(TAGS, USD))
+                .thenReturn(usd("10.00"));
+
+        BudgetDecision decision = evaluator.evaluate(TAGS, krw("50.00"));
+
+        assertThat(decision.state()).isEqualTo(BudgetState.CURRENCY_MISMATCH);
+        assertThat(decision.threshold()).isEqualTo(BudgetThreshold.NONE);
+        assertThat(decision.currentUsage()).isEqualTo(usd("10.00"));
+        assertThat(decision.limit()).isEqualTo(MONTHLY_LIMIT);
+
+        verify(store, never()).addCost(any(), any());
+    }
+
     private static Cost usd(String amount) {
         return Cost.of(new BigDecimal(amount), USD);
+    }
+
+    private static Cost krw(String amount) {
+        return Cost.of(new BigDecimal(amount), KRW);
     }
 
     private static void assertDecision(
