@@ -20,15 +20,9 @@ public record TokenUsageDetails(
      * @throws IllegalArgumentException 세부 토큰 수가 음수인 경우
      */
     public TokenUsageDetails {
-        if (cacheReadInputTokens != null && cacheReadInputTokens < 0) {
-            throw new IllegalArgumentException("cacheReadInputTokens must be non-negative");
-        }
-        if (cacheCreationInputTokens != null && cacheCreationInputTokens < 0) {
-            throw new IllegalArgumentException("cacheCreationInputTokens must be non-negative");
-        }
-        if (reasoningOutputTokens != null && reasoningOutputTokens < 0) {
-            throw new IllegalArgumentException("reasoningOutputTokens must be non-negative");
-        }
+        isEmptyToken(cacheReadInputTokens);
+        isEmptyToken(cacheCreationInputTokens);
+        isEmptyToken(reasoningOutputTokens);
     }
 
     /**
@@ -38,5 +32,11 @@ public record TokenUsageDetails(
      */
     public static TokenUsageDetails unreported() {
         return new TokenUsageDetails(null, null, null);
+    }
+
+    private void isEmptyToken(Long token){
+        if(token != null && token < 0){
+            throw new IllegalArgumentException("tokens must be non-negative");
+        }
     }
 }
