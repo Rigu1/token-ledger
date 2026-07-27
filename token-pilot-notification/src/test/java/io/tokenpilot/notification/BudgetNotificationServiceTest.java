@@ -5,6 +5,7 @@ import io.tokenpilot.budget.BudgetKey;
 import io.tokenpilot.budget.BudgetState;
 import io.tokenpilot.budget.BudgetThreshold;
 import io.tokenpilot.budget.BudgetWindow;
+import io.tokenpilot.core.domain.Cost;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -83,9 +84,8 @@ class BudgetNotificationServiceTest {
         BudgetState.WARN,
         threshold,
         threshold.name(),
-        new BigDecimal(usage),
-        new BigDecimal("100"),
-        Currency.getInstance("USD")
+        Cost.of(new BigDecimal(usage), Currency.getInstance("USD")),
+        Cost.of(new BigDecimal("100"), Currency.getInstance("USD"))
     );
   }
 }

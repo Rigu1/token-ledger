@@ -78,7 +78,6 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
                 budgetStateStore.addCost(
                     decision.key(),
                     decision.limit(),
-                    decision.currency(),
                     cost
                 );
             }

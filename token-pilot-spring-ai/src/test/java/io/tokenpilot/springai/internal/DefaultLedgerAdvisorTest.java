@@ -99,7 +99,6 @@ class DefaultLedgerAdvisorTest {
         verify(budgetStateStore, times(1)).addCost(
                 same(budgetDecision.key()),
                 same(budgetDecision.limit()),
-                same(budgetDecision.currency()),
                 same(mockCost)
         );
     }
@@ -147,9 +146,8 @@ class DefaultLedgerAdvisorTest {
                 BudgetState.ALLOW,
                 BudgetThreshold.NONE,
                 "allowed",
-                BigDecimal.ZERO,
-                new BigDecimal("100.00"),
-                Currency.getInstance("USD")
+                Cost.zero(Currency.getInstance("USD")),
+                Cost.of(new BigDecimal("100.00"), Currency.getInstance("USD"))
         );
     }
 }

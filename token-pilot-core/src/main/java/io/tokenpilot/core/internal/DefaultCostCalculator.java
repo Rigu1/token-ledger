@@ -7,17 +7,14 @@ import io.tokenpilot.core.domain.TokenType;
 import io.tokenpilot.core.domain.TokenUsage;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 
 /**
  * 기본 비용 계산기 구현체.
  * 포괄 총량에서 cache/reasoning 세부량을 분리한 배타적 구간별로
  * {@link TokenType} 단가를 적용하여 중복 없이 계산합니다.
- * 1K 토큰당 가격 정보를 사용하여 소수점 10자리까지 중간 계산 후 6자리로 최종 반올림합니다.
+ * 1K 토큰당 가격을 정확한 decimal shift로 계산하며 내부에서 반올림하지 않습니다.
  */
 class DefaultCostCalculator implements CostCalculator {
-    private static final BigDecimal THOUSAND = BigDecimal.valueOf(1000);
-
     @Override
     public Cost calculate(TokenUsage usage, PricingPlan plan) {
         long cacheReadInput = countOrZero(usage.details().cacheReadInputTokens());
@@ -42,7 +39,7 @@ class DefaultCostCalculator implements CostCalculator {
         }
 
         return rate.multiply(BigDecimal.valueOf(count))
-                .divide(THOUSAND, 10, RoundingMode.HALF_UP);
+                .movePointLeft(3);
     }
 
     private long countOrZero(Long count) {

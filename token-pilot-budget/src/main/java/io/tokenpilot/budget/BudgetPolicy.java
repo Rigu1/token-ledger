@@ -1,8 +1,8 @@
 package io.tokenpilot.budget;
 
-import java.math.BigDecimal;
+import io.tokenpilot.core.domain.Cost;
+
 import java.time.ZoneId;
-import java.util.Currency;
 import java.util.Objects;
 
 /**
@@ -13,8 +13,7 @@ import java.util.Objects;
  * @param targetType 예산 대상 종류
  * @param targetTagKey 대상 식별자를 읽을 tag key
  * @param fallbackTargetId 누락된 대상에 사용할 명시적 fallback, 미설정 시 {@code null}
- * @param monthlyLimit 월별 한도
- * @param currency 예산 통화
+ * @param monthlyLimit 통화를 포함한 월별 한도
  * @param zoneId 월 경계를 계산할 시간대
  */
 public record BudgetPolicy(
@@ -22,8 +21,7 @@ public record BudgetPolicy(
     String targetType,
     String targetTagKey,
     String fallbackTargetId,
-    BigDecimal monthlyLimit,
-    Currency currency,
+    Cost monthlyLimit,
     ZoneId zoneId
 ) {
 
@@ -35,10 +33,9 @@ public record BudgetPolicy(
       throw new IllegalArgumentException("fallbackTargetId must not be blank");
     }
     Objects.requireNonNull(monthlyLimit, "monthlyLimit must not be null");
-    if (monthlyLimit.compareTo(BigDecimal.ZERO) <= 0) {
+    if (monthlyLimit.value().signum() <= 0) {
       throw new IllegalArgumentException("monthlyLimit must be greater than zero");
     }
-    Objects.requireNonNull(currency, "currency must not be null");
     Objects.requireNonNull(zoneId, "zoneId must not be null");
   }
 

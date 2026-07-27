@@ -1,6 +1,7 @@
 package io.tokenpilot.budget;
 
-import java.math.BigDecimal;
+import io.tokenpilot.core.domain.Cost;
+
 import java.util.Map;
 
 
@@ -23,6 +24,6 @@ public interface BudgetEvaluator {
    */
   BudgetDecision evaluate(
       Map<String, String> tags,
-      BigDecimal costAmount
+      Cost cost
   );
 }

@@ -62,4 +62,32 @@ class DefaultCostCalculatorTest {
         // 800 normal output + 200 reasoning output
         assertThat(cost.value()).isEqualByComparingTo("0.041050");
     }
+
+    @Test
+    @DisplayName("작은 1 token 비용을 반올림 없이 계산한다")
+    void calculateOneTokenWithoutRounding() {
+        PricingPlan plan = new PricingPlan(
+                "tiny-model",
+                new BigDecimal("0.0004"),
+                BigDecimal.ZERO
+        );
+
+        Cost cost = calculator.calculate(TokenUsage.from(1, 0), plan);
+
+        assertThat(cost.value()).isEqualByComparingTo("0.0000004");
+    }
+
+    @Test
+    @DisplayName("1,000 token 비용은 1K 단가와 정확히 같다")
+    void calculateOneThousandTokensAtRate() {
+        PricingPlan plan = new PricingPlan(
+                "tiny-model",
+                new BigDecimal("0.0004"),
+                BigDecimal.ZERO
+        );
+
+        Cost cost = calculator.calculate(TokenUsage.from(1_000, 0), plan);
+
+        assertThat(cost.value()).isEqualByComparingTo("0.0004");
+    }
 }

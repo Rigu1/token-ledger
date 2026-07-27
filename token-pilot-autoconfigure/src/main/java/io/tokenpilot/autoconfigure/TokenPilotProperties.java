@@ -1,6 +1,7 @@
 package io.tokenpilot.autoconfigure;
 
 import io.tokenpilot.budget.BudgetPolicy;
+import io.tokenpilot.core.domain.Cost;
 import io.tokenpilot.core.domain.PricingPlan;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.NestedConfigurationProperty;
@@ -89,8 +90,10 @@ public class TokenPilotProperties {
             budget.getTargetType(),
             budget.getTargetTagKey(),
             budget.getFallbackTargetId(),
-            budget.getMonthlyLimit(),
-            Currency.getInstance(budget.getCurrency()),
+            Cost.of(
+                budget.getMonthlyLimit(),
+                Currency.getInstance(budget.getCurrency())
+            ),
             ZoneId.of(budget.getZoneId())
         );
     }

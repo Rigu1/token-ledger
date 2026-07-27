@@ -8,6 +8,7 @@ import io.tokenpilot.budget.BudgetStateStore;
 import io.tokenpilot.budget.BudgetThreshold;
 import io.tokenpilot.budget.BudgetWindow;
 import io.tokenpilot.budget.exception.BudgetExceededException;
+import io.tokenpilot.core.domain.Cost;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -51,21 +52,22 @@ class DefaultBudgetEvaluatorTest {
   @Test
   void 예상_비용을_포함해_임계치를_판정한다() {
     DefaultBudgetEvaluator evaluator = evaluator(policy(null, ZoneOffset.UTC), "2026-07-22T00:00:00Z");
-    when(store.getAccumulatedCost(any(), any(), any())).thenReturn(new BigDecimal("70.00"));
+    when(store.getAccumulatedCost(any(), any())).thenReturn(usd("70.00"));
 
-    BudgetDecision result = evaluator.evaluate(TAGS, new BigDecimal("10.00"));
+    BudgetDecision result = evaluator.evaluate(TAGS, usd("10.00"));
 
     assertThat(result.state()).isEqualTo(BudgetState.WARN);
     assertThat(result.threshold()).isEqualTo(BudgetThreshold.WARNING);
     assertThat(result.key()).isEqualTo(key("policy-a", "tenant-a", "2026-07"));
+    assertThat(result.currentUsage()).isEqualTo(usd("80.00"));
   }
 
   @Test
   void 예산_초과시_동일_key를_포함한_예외가_발생한다() {
     DefaultBudgetEvaluator evaluator = evaluator(policy(null, ZoneOffset.UTC), "2026-07-22T00:00:00Z");
-    when(store.getAccumulatedCost(any(), any(), any())).thenReturn(new BigDecimal("95.00"));
+    when(store.getAccumulatedCost(any(), any())).thenReturn(usd("95.00"));
 
-    assertThatThrownBy(() -> evaluator.evaluate(TAGS, new BigDecimal("10.00")))
+    assertThatThrownBy(() -> evaluator.evaluate(TAGS, usd("10.00")))
         .isInstanceOf(BudgetExceededException.class)
         .extracting(exception -> ((BudgetExceededException) exception).getDecision())
         .satisfies(decision -> {
@@ -82,7 +84,7 @@ class DefaultBudgetEvaluatorTest {
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("tenant_id");
 
-    verify(store, never()).getAccumulatedCost(any(), any(), any());
+    verify(store, never()).getAccumulatedCost(any(), any());
   }
 
   @Test
@@ -91,7 +93,7 @@ class DefaultBudgetEvaluatorTest {
         policy("shared-fallback", ZoneOffset.UTC),
         "2026-07-22T00:00:00Z"
     );
-    when(store.getAccumulatedCost(any(), any(), any())).thenReturn(BigDecimal.ZERO);
+    when(store.getAccumulatedCost(any(), any())).thenReturn(Cost.zero(USD));
 
     BudgetDecision decision = evaluator.evaluate(Map.of("service", "chat"));
 
@@ -109,7 +111,7 @@ class DefaultBudgetEvaluatorTest {
   })
   void Clock_fixed로_월_경계를_결정한다(String instant, String expectedWindow) {
     DefaultBudgetEvaluator evaluator = evaluator(policy(null, ZoneOffset.UTC), instant);
-    when(store.getAccumulatedCost(any(), any(), any())).thenReturn(BigDecimal.ZERO);
+    when(store.getAccumulatedCost(any(), any())).thenReturn(Cost.zero(USD));
 
     BudgetDecision decision = evaluator.evaluate(TAGS);
 
@@ -119,7 +121,7 @@ class DefaultBudgetEvaluatorTest {
   @Test
   void UTC와_설정_ZoneId의_월이_다르면_설정_ZoneId를_따른다() {
     String instant = "2026-07-31T15:30:00Z";
-    when(store.getAccumulatedCost(any(), any(), any())).thenReturn(BigDecimal.ZERO);
+    when(store.getAccumulatedCost(any(), any())).thenReturn(Cost.zero(USD));
 
     BudgetDecision utc = evaluator(policy(null, ZoneOffset.UTC), instant).evaluate(TAGS);
     BudgetDecision seoul = evaluator(policy(null, ZoneId.of("Asia/Seoul")), instant).evaluate(TAGS);
@@ -153,6 +155,21 @@ class DefaultBudgetEvaluatorTest {
     assertThat(keys).containsExactly(key("policy-a", "tenant-a", "2026-07"));
   }
 
+  @Test
+  void 다른_통화의_예상_비용은_mismatch로_반환한다() {
+    DefaultBudgetEvaluator evaluator = evaluator(policy(null, ZoneOffset.UTC), "2026-07-22T00:00:00Z");
+    when(store.getAccumulatedCost(any(), any())).thenReturn(usd("10.00"));
+
+    BudgetDecision decision = evaluator.evaluate(
+        TAGS,
+        Cost.of(new BigDecimal("1000"), Currency.getInstance("KRW"))
+    );
+
+    assertThat(decision.state()).isEqualTo(BudgetState.CURRENCY_MISMATCH);
+    assertThat(decision.currentUsage()).isEqualTo(usd("10.00"));
+    assertThat(decision.limit()).isEqualTo(usd("100.00"));
+  }
+
   private DefaultBudgetEvaluator evaluator(BudgetPolicy policy, String instant) {
     return new DefaultBudgetEvaluator(
         store,
@@ -167,10 +184,13 @@ class DefaultBudgetEvaluatorTest {
         "tenant",
         "tenant_id",
         fallbackTargetId,
-        new BigDecimal("100.00"),
-        USD,
+        usd("100.00"),
         zoneId
     );
+  }
+
+  private static Cost usd(String amount) {
+    return Cost.of(new BigDecimal(amount), USD);
   }
 
   private static BudgetKey key(String policyId, String targetId, String window) {

@@ -6,9 +6,11 @@ package io.tokenpilot.budget;
  * ALLOW : 호출 허용
  * WARN  : 예산 경고
  * BLOCK : 호출 차단
+ * CURRENCY_MISMATCH : 예산과 비용 통화 불일치
  */
 public enum BudgetState {
   ALLOW,
   WARN,
-  BLOCK
+  BLOCK,
+  CURRENCY_MISMATCH
 }

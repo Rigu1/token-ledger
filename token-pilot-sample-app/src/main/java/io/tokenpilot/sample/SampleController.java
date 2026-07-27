@@ -69,7 +69,7 @@ public class SampleController {
 
         return Map.of(
                 "modelId", "gpt-4o-mini",
-                "cost", cost.value().toPlainString(),
+                "cost", CostBoundaryFormatter.format(cost),
                 "currency", cost.currency().getCurrencyCode()
         );
     }
@@ -84,16 +84,20 @@ public class SampleController {
         }
 
         Map<String, String> tags = Map.of("tenant_id", "budget-sample-tenant");
-        BudgetDecision initialDecision = evaluator.evaluate(tags, new BigDecimal("0.001"));
+        BudgetDecision currentDecision = evaluator.evaluate(tags);
+        Cost projectedCost = Cost.of(
+                new BigDecimal("0.001"),
+                currentDecision.limit().currency()
+        );
+        BudgetDecision initialDecision = evaluator.evaluate(tags, projectedCost);
         stateStore.addCost(
                 initialDecision.key(),
                 initialDecision.limit(),
-                initialDecision.currency(),
-                new Cost(new BigDecimal("0.0045"), initialDecision.currency())
+                Cost.of(new BigDecimal("0.0045"), initialDecision.limit().currency())
         );
 
         try {
-            evaluator.evaluate(tags, new BigDecimal("0.001"));
+            evaluator.evaluate(tags, projectedCost);
             return Map.of(
                     "enabled", "true",
                     "initialState", initialDecision.state().name(),
@@ -105,8 +109,8 @@ public class SampleController {
                     "enabled", "true",
                     "initialState", initialDecision.state().name(),
                     "blockedState", blockedDecision.state().name(),
-                    "currentUsage", blockedDecision.currentUsage().stripTrailingZeros().toPlainString(),
-                    "limit", blockedDecision.limit().toPlainString()
+                    "currentUsage", CostBoundaryFormatter.format(blockedDecision.currentUsage()),
+                    "limit", CostBoundaryFormatter.format(blockedDecision.limit())
             );
         }
     }

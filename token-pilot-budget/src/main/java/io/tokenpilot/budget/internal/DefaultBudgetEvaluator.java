@@ -9,6 +9,7 @@ import io.tokenpilot.budget.BudgetStateStore;
 import io.tokenpilot.budget.BudgetThreshold;
 import io.tokenpilot.budget.BudgetWindow;
 import io.tokenpilot.budget.exception.BudgetExceededException;
+import io.tokenpilot.core.domain.Cost;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -28,13 +29,21 @@ public class DefaultBudgetEvaluator implements BudgetEvaluator {
   }
 
   @Override
-  public BudgetDecision evaluate(Map<String, String> tags, BigDecimal costAmount) {
+  public BudgetDecision evaluate(Map<String, String> tags, Cost cost) {
+    Objects.requireNonNull(cost, "cost must not be null");
     BudgetKey key = resolveKey(tags);
-    BigDecimal usage = store.getAccumulatedCost(
-        key,
-        policy.monthlyLimit(),
-        policy.currency()
-    ).add(costAmount);
+    Cost currentUsage = store.getAccumulatedCost(key, policy.monthlyLimit());
+    if (!policy.monthlyLimit().currency().equals(cost.currency())) {
+      return decision(
+          key,
+          BudgetState.CURRENCY_MISMATCH,
+          BudgetThreshold.NONE,
+          "예산 통화와 비용 통화가 일치하지 않습니다",
+          currentUsage
+      );
+    }
+
+    Cost usage = currentUsage.add(cost);
     BudgetDecision decision = decide(key, usage);
     if (decision.state() == BudgetState.BLOCK) {
       throw new BudgetExceededException(decision);
@@ -45,11 +54,7 @@ public class DefaultBudgetEvaluator implements BudgetEvaluator {
   @Override
   public BudgetDecision evaluate(Map<String, String> tags) {
     BudgetKey key = resolveKey(tags);
-    BigDecimal usage = store.getAccumulatedCost(
-        key,
-        policy.monthlyLimit(),
-        policy.currency()
-    );
+    Cost usage = store.getAccumulatedCost(key, policy.monthlyLimit());
     return decide(key, usage);
   }
 
@@ -72,9 +77,9 @@ public class DefaultBudgetEvaluator implements BudgetEvaluator {
     );
   }
 
-  private BudgetDecision decide(BudgetKey key, BigDecimal usage) {
-    BigDecimal halfThreshold = policy.monthlyLimit().multiply(new BigDecimal("0.5"));
-    BigDecimal warningThreshold = policy.monthlyLimit().multiply(new BigDecimal("0.8"));
+  private BudgetDecision decide(BudgetKey key, Cost usage) {
+    Cost halfThreshold = threshold("0.5");
+    Cost warningThreshold = threshold("0.8");
 
     if (usage.compareTo(policy.monthlyLimit()) >= 0) {
       return decision(key, BudgetState.BLOCK, BudgetThreshold.EXCEEDED, "월 예산을 초과했습니다", usage);
@@ -93,7 +98,7 @@ public class DefaultBudgetEvaluator implements BudgetEvaluator {
       BudgetState state,
       BudgetThreshold threshold,
       String reason,
-      BigDecimal usage
+      Cost usage
   ) {
     return new BudgetDecision(
         key,
@@ -101,8 +106,14 @@ public class DefaultBudgetEvaluator implements BudgetEvaluator {
         threshold,
         reason,
         usage,
-        policy.monthlyLimit(),
-        policy.currency()
+        policy.monthlyLimit()
+    );
+  }
+
+  private Cost threshold(String ratio) {
+    return Cost.of(
+        policy.monthlyLimit().value().multiply(new BigDecimal(ratio)),
+        policy.monthlyLimit().currency()
     );
   }
 }

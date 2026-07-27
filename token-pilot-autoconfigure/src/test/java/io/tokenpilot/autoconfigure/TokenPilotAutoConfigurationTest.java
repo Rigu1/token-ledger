@@ -219,21 +219,19 @@ class TokenPilotAutoConfigurationTest {
                 store.addCost(
                     july,
                     initial.limit(),
-                    initial.currency(),
-                    new Cost(new BigDecimal("100.00"), initial.currency())
+                    Cost.of(new BigDecimal("100.00"), initial.limit().currency())
                 );
                 store.addCost(
                     initial.key(),
                     initial.limit(),
-                    initial.currency(),
-                    new Cost(new BigDecimal("50.00"), initial.currency())
+                    Cost.of(new BigDecimal("50.00"), initial.limit().currency())
                 );
 
                 BudgetDecision decision = evaluator.evaluate(tags);
 
                 assertThat(decision.key().window()).isEqualTo(BudgetWindow.parse("2026-08"));
                 assertThat(decision.threshold()).isEqualTo(BudgetThreshold.HALF);
-                assertThat(decision.currentUsage()).isEqualByComparingTo("50.00");
+                assertThat(decision.currentUsage().value()).isEqualByComparingTo("50.00");
             });
     }
 
@@ -416,14 +414,13 @@ class TokenPilotAutoConfigurationTest {
                 BudgetState.ALLOW,
                 BudgetThreshold.NONE,
                 "allowed",
-                BigDecimal.ZERO,
-                BigDecimal.TEN,
-                Currency.getInstance("USD")
+                Cost.zero(Currency.getInstance("USD")),
+                Cost.of(BigDecimal.TEN, Currency.getInstance("USD"))
             );
         }
 
         @Override
-        public BudgetDecision evaluate(Map<String, String> tags, BigDecimal costAmount) {
+        public BudgetDecision evaluate(Map<String, String> tags, Cost cost) {
             return evaluate(tags);
         }
 

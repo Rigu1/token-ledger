@@ -14,7 +14,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class InMemoryBudgetStateStoreTest {
 
   private static final Currency USD = Currency.getInstance("USD");
-  private static final BigDecimal LIMIT = new BigDecimal("100.00");
+  private static final Cost LIMIT = cost("100.00", USD);
 
   @Test
   void 같은_policy_target_window는_계속_누적된다() {
@@ -24,7 +24,7 @@ class InMemoryBudgetStateStoreTest {
     add(store, key, "10.00", USD);
     add(store, key, "5.00", USD);
 
-    assertThat(store.getAccumulatedCost(key, LIMIT, USD)).isEqualByComparingTo("15.00");
+    assertThat(store.getAccumulatedCost(key, LIMIT).value()).isEqualByComparingTo("15.00");
   }
 
   @Test
@@ -39,10 +39,10 @@ class InMemoryBudgetStateStoreTest {
     add(store, otherTarget, "20.00", USD);
     add(store, otherPolicy, "30.00", USD);
 
-    assertThat(store.getAccumulatedCost(july, LIMIT, USD)).isEqualByComparingTo("10.00");
-    assertThat(store.getAccumulatedCost(august, LIMIT, USD)).isEqualByComparingTo("0");
-    assertThat(store.getAccumulatedCost(otherTarget, LIMIT, USD)).isEqualByComparingTo("20.00");
-    assertThat(store.getAccumulatedCost(otherPolicy, LIMIT, USD)).isEqualByComparingTo("30.00");
+    assertThat(store.getAccumulatedCost(july, LIMIT).value()).isEqualByComparingTo("10.00");
+    assertThat(store.getAccumulatedCost(august, LIMIT)).isEqualTo(Cost.zero(USD));
+    assertThat(store.getAccumulatedCost(otherTarget, LIMIT).value()).isEqualByComparingTo("20.00");
+    assertThat(store.getAccumulatedCost(otherPolicy, LIMIT).value()).isEqualByComparingTo("30.00");
   }
 
   @Test
@@ -54,36 +54,33 @@ class InMemoryBudgetStateStoreTest {
     assertThatThrownBy(() -> store.addCost(
         key,
         LIMIT,
-        USD,
-        new Cost(new BigDecimal("1000"), Currency.getInstance("KRW"))
+        cost("1000", Currency.getInstance("KRW"))
     )).isInstanceOf(IllegalArgumentException.class);
 
-    assertThat(store.getAccumulatedCost(key, LIMIT, USD)).isEqualByComparingTo("10.00");
+    assertThat(store.getAccumulatedCost(key, LIMIT).value()).isEqualByComparingTo("10.00");
   }
 
   @Test
-  void 최초_조회에서_limit과_currency_snapshot을_고정한다() {
+  void 최초_기록에서_limit과_currency_snapshot을_고정한다() {
     InMemoryBudgetStateStore store = new InMemoryBudgetStateStore();
     BudgetKey key = key("policy-a", "tenant-a", "2026-07");
 
-    assertThat(store.getAccumulatedCost(key, LIMIT, USD)).isEqualByComparingTo("0");
+    store.addCost(key, LIMIT, cost("1.00", USD));
 
     assertThatThrownBy(() -> store.addCost(
         key,
-        new BigDecimal("200.00"),
-        USD,
-        new Cost(BigDecimal.ONE, USD)
+        cost("200.00", USD),
+        cost("1.00", USD)
     )).isInstanceOf(IllegalArgumentException.class);
 
     Currency krw = Currency.getInstance("KRW");
     assertThatThrownBy(() -> store.addCost(
         key,
-        LIMIT,
-        krw,
-        new Cost(BigDecimal.ONE, krw)
+        cost("100.00", krw),
+        cost("1.00", krw)
     )).isInstanceOf(IllegalArgumentException.class);
 
-    assertThat(store.getAccumulatedCost(key, LIMIT, USD)).isEqualByComparingTo("0");
+    assertThat(store.getAccumulatedCost(key, LIMIT).value()).isEqualByComparingTo("1.00");
   }
 
   private static void add(
@@ -92,7 +89,11 @@ class InMemoryBudgetStateStoreTest {
       String amount,
       Currency currency
   ) {
-    store.addCost(key, LIMIT, currency, new Cost(new BigDecimal(amount), currency));
+    store.addCost(key, LIMIT, cost(amount, currency));
+  }
+
+  private static Cost cost(String amount, Currency currency) {
+    return Cost.of(new BigDecimal(amount), currency);
   }
 
   private static BudgetKey key(String policyId, String targetId, String window) {

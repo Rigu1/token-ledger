@@ -3,6 +3,7 @@ package io.tokenpilot.core.internal;
 import io.tokenpilot.core.*;
 import io.tokenpilot.core.domain.*;
 
+import java.util.Currency;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -13,6 +14,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * 가격 저장소와 계산기를 조율하여 비용을 기록하고, 등록된 리스너들에게 이벤트를 전파합니다.
  */
 class DefaultLedgerManager implements LedgerManager {
+    private static final Currency UNPRICED_COST_CURRENCY = Currency.getInstance("USD");
+
     private final PricingRegistry pricingRegistry;
     private final CostCalculator costCalculator;
     private final List<LedgerListener> listeners = new CopyOnWriteArrayList<>();
@@ -44,7 +47,7 @@ class DefaultLedgerManager implements LedgerManager {
 
         Cost cost = planOpt
                 .map(plan -> costCalculator.calculate(usage, plan))
-                .orElse(Cost.zero());
+                .orElse(Cost.zero(UNPRICED_COST_CURRENCY));
 
         // 이벤트 발행 (리스너들에게 전파)
         if (!listeners.isEmpty()) {

@@ -324,6 +324,9 @@ The active checklist is in `docs/30_DAY_MVP_REPORT.md`; detailed long-term works
 
 - `core.internal` implementation classes are package-private by design. Cross-module construction should continue through public factory/configuration APIs.
 - `TokenUsage` now enforces normalized inclusive totals, optional cache-read/cache-creation/reasoning details, and explicit usage provenance. `DefaultCostCalculator` partitions overlapping totals into disjoint billable amounts before applying rates.
+- `Cost` now requires an explicit currency, preserves exact internal `BigDecimal` precision, rejects negative values and cross-currency operations, and defers scale-6 `HALF_UP` rounding to `RoundingPolicy.COST_BOUNDARY_ROUNDING`.
+- Budget money interfaces now use `Cost` while preserving `BudgetKey`, `BudgetPolicy`, Clock/ZoneId monthly windows, and per-key policy snapshots.
+- Until the typed missing-pricing policy lands, `DefaultLedgerManager` preserves the legacy fail-open result as an explicit zero USD `Cost`; do not confuse that compatibility behavior with a priced zero-rate plan.
 - Spring AI usage extraction converts map/JSON-compatible native usage objects into the normalized core model. Real-provider compatibility fixtures remain required because provider and Spring AI usage shapes can change independently.
 - Current budget flow is check-then-add, is not an atomic reservation, and may not enforce `BLOCK` before provider invocation.
 - Current Micrometer `ai.token.*` metrics may duplicate Spring AI Observability; preserve compatibility while deciding default suppression or replacement.
@@ -386,6 +389,11 @@ Stage and deploy a Central release:
 ```
 
 ## Update History
+
+### 2026-07-27
+
+- Removed per-request cost rounding, added explicit external-boundary rounding, and made `Cost` amount/currency invariants explicit.
+- Migrated budget policy, decision, state-store, notification, Spring AI, autoconfigure, and sample money interfaces to `Cost` without removing the existing `BudgetKey` and Clock-based monthly-window design.
 
 ### 2026-07-22
 

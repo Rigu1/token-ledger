@@ -42,8 +42,8 @@ class SampleApplicationBudgetE2ETest {
                 .contains("\"enabled\":\"true\"")
                 .contains("\"initialState\":\"ALLOW\"")
                 .contains("\"blockedState\":\"BLOCK\"")
-                .contains("\"currentUsage\":\"0.0055\"")
-                .contains("\"limit\":\"0.005\"");
+                .contains("\"currentUsage\":\"0.005500\"")
+                .contains("\"limit\":\"0.005000\"");
     }
 
     private HttpResponse<String> get(String path) throws IOException, InterruptedException {

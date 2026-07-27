@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.math.BigDecimal;
+import java.util.Currency;
 import java.util.List;
 import java.util.Map;
 
@@ -54,6 +55,7 @@ class DefaultLedgerManagerTest {
         Cost result = manager.record("unknown-model", usage, Map.of());
 
         assertThat(result.value()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(result.currency()).isEqualTo(Currency.getInstance("USD"));
         verify(listener).onRecord(any(CostRecordedEvent.class));
     }
 }

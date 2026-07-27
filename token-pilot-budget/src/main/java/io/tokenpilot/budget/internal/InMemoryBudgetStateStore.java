@@ -4,8 +4,6 @@ import io.tokenpilot.budget.BudgetKey;
 import io.tokenpilot.budget.BudgetStateStore;
 import io.tokenpilot.core.domain.Cost;
 
-import java.math.BigDecimal;
-import java.util.Currency;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -18,43 +16,42 @@ public class InMemoryBudgetStateStore implements BudgetStateStore {
   private final ConcurrentMap<BudgetKey, Bucket> store = new ConcurrentHashMap<>();
 
   @Override
-  public BigDecimal getAccumulatedCost(BudgetKey key, BigDecimal limit, Currency currency) {
-    validateArguments(key, limit, currency);
-    Bucket bucket = store.computeIfAbsent(
-        key,
-        ignored -> new Bucket(limit, currency, BigDecimal.ZERO)
-    );
-    bucket.validate(limit, currency);
+  public Cost getAccumulatedCost(BudgetKey key, Cost limit) {
+    validateArguments(key, limit);
+    Bucket bucket = store.get(key);
+    if (bucket == null) {
+      return Cost.zero(limit.currency());
+    }
+    bucket.validate(limit);
     return bucket.accumulatedCost();
   }
 
   @Override
-  public void addCost(BudgetKey key, BigDecimal limit, Currency currency, Cost amount) {
-    validateArguments(key, limit, currency);
+  public void addCost(BudgetKey key, Cost limit, Cost amount) {
+    validateArguments(key, limit);
     Objects.requireNonNull(amount, "amount must not be null");
-    if (!currency.equals(amount.currency())) {
+    if (!limit.currency().equals(amount.currency())) {
       throw new IllegalArgumentException("Budget currency does not match cost currency");
     }
 
     store.compute(key, (ignored, bucket) -> {
       if (bucket == null) {
-        return new Bucket(limit, currency, amount.value());
+        return new Bucket(limit, amount);
       }
-      bucket.validate(limit, currency);
-      return new Bucket(limit, currency, bucket.accumulatedCost().add(amount.value()));
+      bucket.validate(limit);
+      return new Bucket(limit, bucket.accumulatedCost().add(amount));
     });
   }
 
-  private void validateArguments(BudgetKey key, BigDecimal limit, Currency currency) {
+  private void validateArguments(BudgetKey key, Cost limit) {
     Objects.requireNonNull(key, "key must not be null");
     Objects.requireNonNull(limit, "limit must not be null");
-    Objects.requireNonNull(currency, "currency must not be null");
   }
 
-  private record Bucket(BigDecimal limit, Currency currency, BigDecimal accumulatedCost) {
+  private record Bucket(Cost limit, Cost accumulatedCost) {
 
-    private void validate(BigDecimal expectedLimit, Currency expectedCurrency) {
-      if (limit.compareTo(expectedLimit) != 0 || !currency.equals(expectedCurrency)) {
+    private void validate(Cost expectedLimit) {
+      if (!limit.equals(expectedLimit)) {
         throw new IllegalArgumentException("Budget policy snapshot changed for an existing key");
       }
     }
