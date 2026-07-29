@@ -1,3 +1,5 @@
+<img width="256" height="256" alt="tokenpilot" src="https://github.com/user-attachments/assets/f9e8ece8-c2fb-461a-a7a3-2372a61a059d" />
+
 # TokenPilot
 
 > One Java gateway to control LLM providers, routing, fallback, tokens, and costs.
