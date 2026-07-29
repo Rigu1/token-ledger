@@ -1,4 +1,5 @@
-<img width="256" height="256" alt="tokenpilot" src="https://github.com/user-attachments/assets/f9e8ece8-c2fb-461a-a7a3-2372a61a059d" />
+<img width="515" height="358" alt="스크린샷 2026-07-29 14 16 36" src="https://github.com/user-attachments/assets/086cd103-99ae-4cc6-8ee6-67585fde4564" />
+
 
 # TokenPilot
 
