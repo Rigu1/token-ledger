@@ -1,6 +1,9 @@
 package io.tokenpilot.core.internal;
 
 import io.tokenpilot.core.domain.PricingPlan;
+import io.tokenpilot.core.domain.PricingResolution;
+import io.tokenpilot.core.domain.PricingResolutionStatus;
+import io.tokenpilot.core.domain.TokenType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -39,5 +42,14 @@ class InMemoryPricingRegistryTest {
 
         // Then
         assertThat(retrieved).isEmpty();
+    }
+
+    @Test
+    @DisplayName("등록되지 않은 모델의 가격 결정 결과는 MISSING_PLAN이어야 한다")
+    void shouldResolveMissingPlanWhenModelIsNotRegistered() {
+        PricingResolution resolution = registry.resolveRate("non-existent", TokenType.PROMPT);
+
+        assertThat(resolution.status()).isEqualTo(PricingResolutionStatus.MISSING_PLAN);
+        assertThat(resolution.isResolved()).isFalse();
     }
 }

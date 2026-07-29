@@ -85,4 +85,17 @@ public record PricingPlan(
             default -> rates.getOrDefault(type, BigDecimal.ZERO);
         };
     }
+
+    /**
+     * 특정 토큰 타입의 가격 결정 결과를 반환합니다.
+     * 명시적으로 등록된 0 rate는 {@link PricingResolutionStatus#RESOLVED}로,
+     * 누락된 rate는 {@link PricingResolutionStatus#MISSING_RATE}로 표현합니다.
+     */
+    public PricingResolution resolveRate(TokenType type) {
+        if (rates.containsKey(type)) {
+            return PricingResolution.resolved();
+        }
+
+        return PricingResolution.missingRate();
+    }
 }
