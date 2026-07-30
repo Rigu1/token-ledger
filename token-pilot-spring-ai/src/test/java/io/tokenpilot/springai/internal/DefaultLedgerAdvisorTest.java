@@ -381,6 +381,44 @@ class DefaultLedgerAdvisorTest {
     }
 
     @Test
+    @DisplayName("missing pricing은 CostBound 실패로 전파할 PricingResolution을 보존해야 한다")
+    void preserveMissingPricingResolutionForCostBoundFailure() {
+        LedgerManager ledgerManager = mock(LedgerManager.class);
+        UsageExtractor extractor = mock(UsageExtractor.class);
+        PricingRegistry pricingRegistry = mock(PricingRegistry.class);
+        TokenUsage usage = TokenUsage.from(100, 200);
+
+        when(extractor.extract(any())).thenReturn(usage);
+        when(pricingRegistry.resolveSnapshot("missing-model", PricingPlan.DEFAULT_PRICING_POLICY_ID))
+                .thenReturn(Optional.empty());
+
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(
+                ledgerManager,
+                extractor,
+                null,
+                null,
+                mock(CostCalculator.class),
+                pricingRegistry
+        );
+        ChatClientRequest request = new ChatClientRequest(
+                new Prompt("test"),
+                Map.of(DefaultLedgerAdvisor.MODEL_ID_CONTEXT, "missing-model")
+        );
+        ChatClientRequest resolvedRequest = advisor.before(request, mock(AdvisorChain.class));
+
+        ChatClientResponse unpricedResponse = advisor.after(
+                response("missing-model", resolvedRequest.context()),
+                mock(AdvisorChain.class)
+        );
+
+        assertThat(unpricedResponse.context().get(DefaultLedgerAdvisor.PRICING_RESOLUTION_CONTEXT))
+                .isEqualTo(PricingResolution.MISSING_PLAN);
+        assertThat(unpricedResponse.context().get(DefaultLedgerAdvisor.PRICING_RECONCILIATION_RESULT_CONTEXT))
+                .isEqualTo(PricingReconciliationResult.UNPRICED);
+        verifyNoInteractions(ledgerManager);
+    }
+
+    @Test
     @DisplayName("FAIL_CLOSED는 provider 호출 전에 missing pricing을 차단하고 invocation count를 0으로 유지해야 한다")
     void failClosedBlocksMissingPricingBeforeProviderCall() {
         LedgerManager ledgerManager = mock(LedgerManager.class);
