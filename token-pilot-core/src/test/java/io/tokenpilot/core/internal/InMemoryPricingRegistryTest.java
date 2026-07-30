@@ -185,6 +185,37 @@ class InMemoryPricingRegistryTest {
     }
 
     @Test
+    @DisplayName("currency mismatch는 등록된 pricing 상태를 변경하지 않아야 한다")
+    void shouldNotChangePricingStateWhenCurrencyMismatches() {
+        PricingPlan plan = new PricingPlan(
+                "usd-model",
+                Map.of(TokenType.PROMPT, new BigDecimal("0.015")),
+                Currency.getInstance("USD")
+        );
+        registry.registerPlan(plan);
+
+        PricingResolution resolution = registry.resolveRate(
+                "usd-model",
+                TokenType.PROMPT,
+                Currency.getInstance("KRW")
+        );
+
+        assertThat(resolution).isEqualTo(PricingResolution.CURRENCY_MISMATCH);
+        assertThat(registry.getPlan("usd-model")).contains(plan);
+        assertThat(registry.resolveSnapshot("usd-model", PricingPlan.DEFAULT_PRICING_POLICY_ID))
+                .isPresent()
+                .get()
+                .satisfies(snapshot -> {
+                    assertThat(snapshot.modelId()).isEqualTo("usd-model");
+                    assertThat(snapshot.pricingPolicyId()).isEqualTo(PricingPlan.DEFAULT_PRICING_POLICY_ID);
+                    assertThat(snapshot.currency()).isEqualTo(Currency.getInstance("USD"));
+                    assertThat(snapshot.rates()).containsEntry(TokenType.PROMPT, new BigDecimal("0.015"));
+                });
+        assertThat(registry.resolveRate("usd-model", TokenType.PROMPT, Currency.getInstance("USD")))
+                .isEqualTo(PricingResolution.RESOLVED);
+    }
+
+    @Test
     @DisplayName("기대 통화와 plan 통화가 같으면 일반 rate resolution을 수행해야 한다")
     void shouldDelegateRateResolutionWhenExpectedCurrencyMatches() {
         PricingPlan plan = new PricingPlan(
