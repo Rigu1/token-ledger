@@ -25,12 +25,15 @@ import java.util.Optional;
 public class DefaultLedgerAdvisor implements LedgerAdvisor {
 
     static final String BUDGET_DECISION_CONTEXT = "tokenpilot.budget.decision";
+    static final String MODEL_ID_CONTEXT = "tokenpilot.model.id";
+    static final String PRICING_POLICY_ID_CONTEXT = "tokenpilot.pricing.policy.id";
+    static final String PRICING_PLAN_CONTEXT = "tokenpilot.pricing.plan";
+    static final String PRICING_RESOLUTION_CONTEXT = "tokenpilot.pricing.resolution";
 
     private final LedgerManager ledgerManager;
     private final UsageExtractor usageExtractor;
     private final BudgetEvaluator budgetEvaluator;
     private final BudgetStateStore budgetStateStore;
-    private final CostCalculator costCalculator;
     private final PricingRegistry pricingRegistry;
 
     public DefaultLedgerAdvisor(LedgerManager ledgerManager, UsageExtractor usageExtractor) {
@@ -44,20 +47,26 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
         this.usageExtractor = usageExtractor;
         this.budgetEvaluator = budgetEvaluator;
         this.budgetStateStore = budgetStateStore;
-        this.costCalculator = costCalculator;
         this.pricingRegistry = pricingRegistry;
     }
 
     @Override
     public ChatClientRequest before(ChatClientRequest request, AdvisorChain chain) {
+        ChatClientRequest resolvedRequest = request;
+
         if (budgetEvaluator != null) {
             Map<String, String> tags = extractTagsFromRequest(request);
             BudgetDecision decision = budgetEvaluator.evaluate(tags);
-            return request.mutate()
+            resolvedRequest = resolvedRequest.mutate()
                           .context(BUDGET_DECISION_CONTEXT, decision)
                           .build();
         }
-        return request;
+
+        if (pricingRegistry != null) {
+            resolvedRequest = resolvePricing(resolvedRequest);
+        }
+
+        return resolvedRequest;
     }
 
     @Override
@@ -67,26 +76,61 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
         String modelId = extractModelId(response);
         Map<String, String> tags = extractTags(response);
 
-        ledgerManager.record(modelId, usage, tags);
+        Cost cost = null;
+        Optional<PricingPlan> plan = extractPricingPlan(response);
+        if (plan.isPresent()) {
+            cost = ledgerManager.record(plan.get(), usage, tags);
+        } else if (!hasPricingResolution(response)) {
+            cost = ledgerManager.record(modelId, usage, tags);
+        }
 
         // 예산 누적 처리
-        if (budgetStateStore != null && costCalculator != null && pricingRegistry != null) {
-            Optional<PricingPlan> plan = pricingRegistry.getPlan(modelId);
-            if (plan.isPresent()) {
-                Cost cost = costCalculator.calculate(usage, plan.get());
-                BudgetDecision decision = extractBudgetDecision(response);
-                budgetStateStore.addCost(
-                    decision.key(),
-                    decision.limit(),
-                    cost
-                );
-            }
+        if (budgetStateStore != null && cost != null) {
+            BudgetDecision decision = extractBudgetDecision(response);
+            budgetStateStore.addCost(
+                decision.key(),
+                decision.limit(),
+                cost
+            );
         }
 
         return response;
     }
 
+    private ChatClientRequest resolvePricing(ChatClientRequest request) {
+        String modelId = extractModelId(request);
+        if (modelId == null) {
+            return request;
+        }
+
+        String pricingPolicyId = extractPricingPolicyId(request);
+        Optional<PricingPlan> plan = pricingRegistry.getPlan(modelId, pricingPolicyId);
+        PricingResolution resolution = plan.isPresent()
+                ? PricingResolution.RESOLVED
+                : PricingResolution.MISSING_PLAN;
+
+        ChatClientRequest.Builder builder = request.mutate()
+                .context(PRICING_POLICY_ID_CONTEXT, pricingPolicyId)
+                .context(PRICING_RESOLUTION_CONTEXT, resolution);
+        plan.ifPresent(value -> builder.context(PRICING_PLAN_CONTEXT, value));
+        return builder.build();
+    }
+
+    private String extractModelId(ChatClientRequest request) {
+        Object value = request.context().get(MODEL_ID_CONTEXT);
+        if (value instanceof String modelId && !modelId.isBlank()) {
+            return modelId;
+        }
+        return null;
+    }
+
     private String extractModelId(ChatClientResponse response) {
+        Map<String, Object> context = response.context();
+        Object value = context == null ? null : context.get(MODEL_ID_CONTEXT);
+        if (value instanceof String modelId && !modelId.isBlank()) {
+            return modelId;
+        }
+
         if (response.chatResponse() != null && response.chatResponse().getMetadata() != null) {
             String model = response.chatResponse().getMetadata().getModel();
             if (model != null && !model.isBlank()) {
@@ -94,6 +138,28 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
             }
         }
         return "unknown-model";
+    }
+
+    private String extractPricingPolicyId(ChatClientRequest request) {
+        Object value = request.context().get(PRICING_POLICY_ID_CONTEXT);
+        if (value instanceof String pricingPolicyId && !pricingPolicyId.isBlank()) {
+            return pricingPolicyId;
+        }
+        return PricingPlan.DEFAULT_PRICING_POLICY_ID;
+    }
+
+    private Optional<PricingPlan> extractPricingPlan(ChatClientResponse response) {
+        Map<String, Object> context = response.context();
+        Object value = context == null ? null : context.get(PRICING_PLAN_CONTEXT);
+        if (value instanceof PricingPlan plan) {
+            return Optional.of(plan);
+        }
+        return Optional.empty();
+    }
+
+    private boolean hasPricingResolution(ChatClientResponse response) {
+        Map<String, Object> context = response.context();
+        return context != null && context.get(PRICING_RESOLUTION_CONTEXT) instanceof PricingResolution;
     }
 
     private Map<String, String> extractTags(ChatClientResponse response) {

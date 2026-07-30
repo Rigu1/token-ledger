@@ -14,7 +14,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.*;
 
 class DefaultLedgerManagerTest {
 
@@ -57,5 +57,29 @@ class DefaultLedgerManagerTest {
         assertThat(result.value()).isEqualByComparingTo(BigDecimal.ZERO);
         assertThat(result.currency()).isEqualTo(Currency.getInstance("USD"));
         verify(listener).onRecord(any(CostRecordedEvent.class));
+    }
+
+    @Test
+    @DisplayName("이미 resolve된 plan으로 기록하면 registry를 다시 조회하지 않아야 한다")
+    void shouldRecordWithResolvedPlanWithoutRegistryLookup() {
+        PricingRegistry pricingRegistry = Mockito.mock(PricingRegistry.class);
+        CostCalculator costCalculator = Mockito.mock(CostCalculator.class);
+        LedgerListener listener = Mockito.mock(LedgerListener.class);
+        DefaultLedgerManager manager = new DefaultLedgerManager(pricingRegistry, costCalculator, List.of(listener));
+        PricingPlan plan = new PricingPlan("gpt-4o", new BigDecimal("5.0"), new BigDecimal("15.0"));
+        TokenUsage usage = TokenUsage.from(1000, 1000);
+        Cost expectedCost = new Cost(new BigDecimal("20.000000"), Currency.getInstance("USD"));
+
+        when(costCalculator.calculate(usage, plan)).thenReturn(expectedCost);
+
+        Cost cost = manager.record(plan, usage, Map.of());
+
+        assertThat(cost).isEqualTo(expectedCost);
+        verifyNoInteractions(pricingRegistry);
+        verify(listener).onRecord(argThat(event ->
+                event.modelId().equals("gpt-4o") &&
+                event.usage().equals(usage) &&
+                event.cost().equals(expectedCost)
+        ));
     }
 }

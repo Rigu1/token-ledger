@@ -9,7 +9,6 @@ import io.tokenpilot.budget.BudgetThreshold;
 import io.tokenpilot.budget.BudgetWindow;
 import io.tokenpilot.core.*;
 import io.tokenpilot.core.domain.*;
-import io.tokenpilot.springai.LedgerAdvisor;
 import io.tokenpilot.springai.UsageExtractor;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -77,8 +76,8 @@ class DefaultLedgerAdvisorTest {
         BudgetDecision budgetDecision = decision();
 
         when(extractor.extract(any())).thenReturn(mockUsage);
-        when(pricingRegistry.getPlan("gpt-4o")).thenReturn(Optional.of(mockPlan));
-        when(costCalculator.calculate(mockUsage, mockPlan)).thenReturn(mockCost);
+        when(pricingRegistry.getPlan("gpt-4o", PricingPlan.DEFAULT_PRICING_POLICY_ID)).thenReturn(Optional.of(mockPlan));
+        when(ledgerManager.record(same(mockPlan), same(mockUsage), anyMap())).thenReturn(mockCost);
         when(budgetEvaluator.evaluate(anyMap())).thenReturn(budgetDecision);
 
         DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(ledgerManager, extractor, 
@@ -86,7 +85,10 @@ class DefaultLedgerAdvisorTest {
 
         ChatClientRequest request = new ChatClientRequest(
                 new Prompt("test"),
-                Map.of("tenant_id", "tenant-abc")
+                Map.of(
+                        DefaultLedgerAdvisor.MODEL_ID_CONTEXT, "gpt-4o",
+                        "tenant_id", "tenant-abc"
+                )
         );
         ChatClientRequest resolvedRequest = advisor.before(request, mock(AdvisorChain.class));
 
@@ -101,6 +103,96 @@ class DefaultLedgerAdvisorTest {
                 same(budgetDecision.limit()),
                 same(mockCost)
         );
+        verify(pricingRegistry, times(1)).getPlan("gpt-4o", PricingPlan.DEFAULT_PRICING_POLICY_ID);
+        verifyNoMoreInteractions(pricingRegistry);
+    }
+
+    @Test
+    @DisplayName("AI 호출 전 pricing plan을 한 번 resolve하고 이후 정산에서는 registry를 다시 조회하지 않아야 한다")
+    void resolvePricingPlanBeforeProviderCallAndReuseItAfterResponse() {
+        LedgerManager ledgerManager = mock(LedgerManager.class);
+        UsageExtractor extractor = mock(UsageExtractor.class);
+        PricingRegistry pricingRegistry = mock(PricingRegistry.class);
+        TokenUsage usage = TokenUsage.from(100, 200);
+        PricingPlan plan = new PricingPlan(
+                "gpt-4o",
+                "standard",
+                new BigDecimal("0.01"),
+                new BigDecimal("0.03"),
+                Currency.getInstance("USD")
+        );
+
+        when(extractor.extract(any())).thenReturn(usage);
+        when(pricingRegistry.getPlan("gpt-4o", "standard")).thenReturn(Optional.of(plan));
+
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(
+                ledgerManager,
+                extractor,
+                null,
+                null,
+                mock(CostCalculator.class),
+                pricingRegistry
+        );
+        ChatClientRequest request = new ChatClientRequest(
+                new Prompt("test"),
+                Map.of(
+                        DefaultLedgerAdvisor.MODEL_ID_CONTEXT, "gpt-4o",
+                        DefaultLedgerAdvisor.PRICING_POLICY_ID_CONTEXT, "standard"
+                )
+        );
+
+        ChatClientRequest resolvedRequest = advisor.before(request, mock(AdvisorChain.class));
+
+        assertThat(resolvedRequest.context().get(DefaultLedgerAdvisor.PRICING_RESOLUTION_CONTEXT))
+                .isEqualTo(PricingResolution.RESOLVED);
+        assertThat(resolvedRequest.context().get(DefaultLedgerAdvisor.PRICING_PLAN_CONTEXT))
+                .isSameAs(plan);
+
+        ChatClientResponse response = response("gpt-4o", resolvedRequest.context());
+
+        advisor.after(response, mock(AdvisorChain.class));
+
+        verify(pricingRegistry, times(1)).getPlan("gpt-4o", "standard");
+        verifyNoMoreInteractions(pricingRegistry);
+        verify(ledgerManager, times(1)).record(same(plan), same(usage), anyMap());
+        verify(ledgerManager, never()).record(eq("gpt-4o"), same(usage), anyMap());
+    }
+
+    @Test
+    @DisplayName("AI 호출 전 pricing resolution 실패는 provider 호출 여부 판단 값으로 전달되어야 한다")
+    void exposeMissingPricingResolutionBeforeProviderCall() {
+        LedgerManager ledgerManager = mock(LedgerManager.class);
+        UsageExtractor extractor = mock(UsageExtractor.class);
+        PricingRegistry pricingRegistry = mock(PricingRegistry.class);
+        TokenUsage usage = TokenUsage.from(100, 200);
+
+        when(extractor.extract(any())).thenReturn(usage);
+        when(pricingRegistry.getPlan("missing-model", PricingPlan.DEFAULT_PRICING_POLICY_ID))
+                .thenReturn(Optional.empty());
+
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(
+                ledgerManager,
+                extractor,
+                null,
+                null,
+                mock(CostCalculator.class),
+                pricingRegistry
+        );
+        ChatClientRequest request = new ChatClientRequest(
+                new Prompt("test"),
+                Map.of(DefaultLedgerAdvisor.MODEL_ID_CONTEXT, "missing-model")
+        );
+
+        ChatClientRequest resolvedRequest = advisor.before(request, mock(AdvisorChain.class));
+
+        assertThat(resolvedRequest.context().get(DefaultLedgerAdvisor.PRICING_RESOLUTION_CONTEXT))
+                .isEqualTo(PricingResolution.MISSING_PLAN);
+
+        advisor.after(response("missing-model", resolvedRequest.context()), mock(AdvisorChain.class));
+
+        verify(pricingRegistry, times(1)).getPlan("missing-model", PricingPlan.DEFAULT_PRICING_POLICY_ID);
+        verifyNoMoreInteractions(pricingRegistry);
+        verifyNoInteractions(ledgerManager);
     }
 
     @Test
@@ -149,5 +241,14 @@ class DefaultLedgerAdvisorTest {
                 Cost.zero(Currency.getInstance("USD")),
                 Cost.of(new BigDecimal("100.00"), Currency.getInstance("USD"))
         );
+    }
+
+    private static ChatClientResponse response(String modelId, Map<String, Object> context) {
+        ChatResponseMetadata metadata = ChatResponseMetadata.builder().model(modelId).build();
+        ChatResponse chatResponse = new ChatResponse(
+                List.of(new Generation(new org.springframework.ai.chat.messages.AssistantMessage("test"))),
+                metadata
+        );
+        return new ChatClientResponse(chatResponse, context);
     }
 }
