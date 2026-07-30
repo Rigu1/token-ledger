@@ -245,14 +245,23 @@ class TokenPilotAutoConfigurationTest {
     void shouldWireBudgetEvaluatorIntoLedgerAdvisorWhenBudgetEnabled() {
         this.contextRunner
             .withUserConfiguration(RecordingBudgetEvaluatorConfiguration.class)
-            .withPropertyValues("token-pilot.budget.enabled=true")
+            .withPropertyValues(
+                "token-pilot.budget.enabled=true",
+                PROP_MODEL_ID + "=gpt-4o",
+                PROP_PROMPT + "=0.005",
+                PROP_COMPLETION + "=0.015",
+                PROP_CURRENCY + "=USD"
+            )
             .run(context -> {
                 LedgerAdvisor advisor = context.getBean(LedgerAdvisor.class);
                 RecordingBudgetEvaluator evaluator = context.getBean(RecordingBudgetEvaluator.class);
 
                 ChatClientRequest request = new ChatClientRequest(
                     new Prompt("test"),
-                    Map.of("tenant_id", "tenant-abc")
+                    Map.of(
+                        "tenant_id", "tenant-abc",
+                        "tokenpilot.model.id", "gpt-4o"
+                    )
                 );
 
                 advisor.before(request, mock(AdvisorChain.class));
