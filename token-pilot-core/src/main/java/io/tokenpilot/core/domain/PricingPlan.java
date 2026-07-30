@@ -24,7 +24,7 @@ public record PricingPlan(
         if (currency == null) {
             currency = Currency.getInstance("USD");
         }
-        // 모든 단가는 0 이상이어야 함
+
         rates.values().forEach(v -> {
             if (v.compareTo(BigDecimal.ZERO) < 0) {
                 throw new IllegalArgumentException("Price cannot be negative");
@@ -77,13 +77,9 @@ public record PricingPlan(
             return rates.get(type);
         }
 
-        // Fallback Logic
-        return switch (type) {
-            case REASONING -> rates.getOrDefault(TokenType.COMPLETION, BigDecimal.ZERO);
-            case CACHE_READ_PROMPT, CACHE_CREATION_PROMPT ->
-                    rates.getOrDefault(TokenType.PROMPT, BigDecimal.ZERO);
-            default -> rates.getOrDefault(type, BigDecimal.ZERO);
-        };
+        return PricingRateFallback.fallbackFor(type)
+                .map(fallbackType -> rates.getOrDefault(fallbackType, BigDecimal.ZERO))
+                .orElse(BigDecimal.ZERO);
     }
 
     /**
@@ -96,6 +92,9 @@ public record PricingPlan(
             return PricingResolution.RESOLVED;
         }
 
-        return PricingResolution.MISSING_RATE;
+        return PricingRateFallback.fallbackFor(type)
+                .filter(rates::containsKey)
+                .map(fallbackType -> PricingResolution.RESOLVED)
+                .orElse(PricingResolution.MISSING_RATE);
     }
 }
