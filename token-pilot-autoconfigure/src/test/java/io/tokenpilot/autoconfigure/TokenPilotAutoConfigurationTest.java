@@ -19,6 +19,7 @@ import io.tokenpilot.core.domain.PricingResolution;
 import io.tokenpilot.core.domain.PricingSnapshot;
 import io.tokenpilot.core.domain.TokenType;
 import io.tokenpilot.core.domain.TokenUsage;
+import io.tokenpilot.core.exception.MissingPricingException;
 import io.tokenpilot.notification.BudgetNotificationHandler;
 import io.tokenpilot.notification.BudgetNotificationService;
 import io.tokenpilot.notification.NotificationStateStore;
@@ -50,6 +51,7 @@ import java.util.stream.Stream;
 import static io.tokenpilot.core.domain.TokenType.COMPLETION;
 import static io.tokenpilot.core.domain.TokenType.PROMPT;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.params.provider.Arguments.argumentSet;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -261,6 +263,30 @@ class TokenPilotAutoConfigurationTest {
                     softly.assertThat(evaluator.lastTags())
                         .containsEntry("tenant_id", "tenant-abc");
                 });
+            });
+    }
+
+    @Test
+    @DisplayName("Budget가 활성화되면 missing pricing policy 기본값은 FAIL_CLOSED여야 한다")
+    void shouldUseFailClosedMissingPricingPolicyWhenBudgetEnabled() {
+        this.contextRunner
+            .withUserConfiguration(RecordingBudgetEvaluatorConfiguration.class)
+            .withPropertyValues("token-pilot.budget.enabled=true")
+            .run(context -> {
+                LedgerAdvisor advisor = context.getBean(LedgerAdvisor.class);
+                ChatClientRequest request = new ChatClientRequest(
+                    new Prompt("test"),
+                    Map.of(
+                        "tenant_id", "tenant-abc",
+                        "tokenpilot.model.id", "missing-model"
+                    )
+                );
+
+                assertThatThrownBy(() -> advisor.before(request, mock(AdvisorChain.class)))
+                    .isInstanceOf(MissingPricingException.class)
+                    .hasMessage("MISSING_PLAN")
+                    .extracting(exception -> ((MissingPricingException) exception).getResolution())
+                    .isEqualTo(PricingResolution.MISSING_PLAN);
             });
     }
 

@@ -5,6 +5,7 @@ import io.tokenpilot.budget.BudgetStateStore;
 import io.tokenpilot.core.CostCalculator;
 import io.tokenpilot.core.LedgerManager;
 import io.tokenpilot.core.PricingRegistry;
+import io.tokenpilot.core.domain.MissingPricingPolicy;
 import io.tokenpilot.springai.LedgerAdvisor;
 import io.tokenpilot.springai.UsageExtractor;
 
@@ -35,13 +36,34 @@ public final class LedgerSpringAiComponents {
             CostCalculator costCalculator,
             PricingRegistry pricingRegistry
     ) {
+        return defaultLedgerAdvisor(
+                ledgerManager,
+                usageExtractor,
+                budgetEvaluator,
+                budgetStateStore,
+                costCalculator,
+                pricingRegistry,
+                MissingPricingPolicy.FAIL_OPEN
+        );
+    }
+
+    public static LedgerAdvisor defaultLedgerAdvisor(
+            LedgerManager ledgerManager,
+            UsageExtractor usageExtractor,
+            BudgetEvaluator budgetEvaluator,
+            BudgetStateStore budgetStateStore,
+            CostCalculator costCalculator,
+            PricingRegistry pricingRegistry,
+            MissingPricingPolicy missingPricingPolicy
+    ) {
         return new DefaultLedgerAdvisor(
                 ledgerManager,
                 usageExtractor,
                 budgetEvaluator,
                 budgetStateStore,
                 costCalculator,
-                pricingRegistry
+                pricingRegistry,
+                missingPricingPolicy
         );
     }
 }

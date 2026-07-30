@@ -9,6 +9,7 @@ import io.tokenpilot.core.LedgerListener;
 import io.tokenpilot.core.LedgerManager;
 import io.tokenpilot.core.PricingProvider;
 import io.tokenpilot.core.PricingRegistry;
+import io.tokenpilot.core.domain.MissingPricingPolicy;
 import io.tokenpilot.core.internal.LedgerComponents;
 import io.tokenpilot.micrometer.internal.LedgerMicrometerComponents;
 import io.tokenpilot.springai.LedgerAdvisor;
@@ -120,7 +121,8 @@ public class TokenPilotAutoConfiguration {
                     evaluator,
                     stateStore,
                     costCalculator,
-                    pricingRegistry
+                    pricingRegistry,
+                    MissingPricingPolicy.FAIL_CLOSED
             );
         }
 
