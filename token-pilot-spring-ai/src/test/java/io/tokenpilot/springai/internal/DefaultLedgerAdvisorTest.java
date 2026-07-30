@@ -21,6 +21,7 @@ import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.Currency;
 import java.util.List;
 import java.util.Map;
@@ -76,8 +77,14 @@ class DefaultLedgerAdvisorTest {
         BudgetDecision budgetDecision = decision();
 
         when(extractor.extract(any())).thenReturn(mockUsage);
-        when(pricingRegistry.getPlan("gpt-4o", PricingPlan.DEFAULT_PRICING_POLICY_ID)).thenReturn(Optional.of(mockPlan));
-        when(ledgerManager.record(same(mockPlan), same(mockUsage), anyMap())).thenReturn(mockCost);
+        when(pricingRegistry.resolveSnapshot("gpt-4o", PricingPlan.DEFAULT_PRICING_POLICY_ID))
+                .thenReturn(Optional.of(PricingSnapshot.from(
+                        mockPlan,
+                        PricingSnapshot.DEFAULT_CATALOG_VERSION,
+                        Instant.parse("2026-07-30T00:00:00Z")
+                )));
+        when(pricingRegistry.getPlan("gpt-4o")).thenReturn(Optional.of(mockPlan));
+        when(costCalculator.calculate(mockUsage, mockPlan)).thenReturn(mockCost);
         when(budgetEvaluator.evaluate(anyMap())).thenReturn(budgetDecision);
 
         DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(ledgerManager, extractor, 
@@ -103,17 +110,16 @@ class DefaultLedgerAdvisorTest {
                 same(budgetDecision.limit()),
                 same(mockCost)
         );
-        verify(pricingRegistry, times(1)).getPlan("gpt-4o", PricingPlan.DEFAULT_PRICING_POLICY_ID);
+        verify(pricingRegistry, times(1)).resolveSnapshot("gpt-4o", PricingPlan.DEFAULT_PRICING_POLICY_ID);
+        verify(pricingRegistry, times(1)).getPlan("gpt-4o");
         verifyNoMoreInteractions(pricingRegistry);
     }
 
     @Test
-    @DisplayName("AI 호출 전 pricing plan을 한 번 resolve하고 이후 정산에서는 registry를 다시 조회하지 않아야 한다")
-    void resolvePricingPlanBeforeProviderCallAndReuseItAfterResponse() {
+    @DisplayName("AI 호출 전 pricing snapshot을 만들어 요청 context에 보존해야 한다")
+    void createPricingSnapshotBeforeProviderCall() {
         LedgerManager ledgerManager = mock(LedgerManager.class);
-        UsageExtractor extractor = mock(UsageExtractor.class);
         PricingRegistry pricingRegistry = mock(PricingRegistry.class);
-        TokenUsage usage = TokenUsage.from(100, 200);
         PricingPlan plan = new PricingPlan(
                 "gpt-4o",
                 "standard",
@@ -121,13 +127,17 @@ class DefaultLedgerAdvisorTest {
                 new BigDecimal("0.03"),
                 Currency.getInstance("USD")
         );
+        PricingSnapshot snapshot = PricingSnapshot.from(
+                plan,
+                PricingSnapshot.DEFAULT_CATALOG_VERSION,
+                Instant.parse("2026-07-30T00:00:00Z")
+        );
 
-        when(extractor.extract(any())).thenReturn(usage);
-        when(pricingRegistry.getPlan("gpt-4o", "standard")).thenReturn(Optional.of(plan));
+        when(pricingRegistry.resolveSnapshot("gpt-4o", "standard")).thenReturn(Optional.of(snapshot));
 
         DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(
                 ledgerManager,
-                extractor,
+                mock(UsageExtractor.class),
                 null,
                 null,
                 mock(CostCalculator.class),
@@ -145,17 +155,19 @@ class DefaultLedgerAdvisorTest {
 
         assertThat(resolvedRequest.context().get(DefaultLedgerAdvisor.PRICING_RESOLUTION_CONTEXT))
                 .isEqualTo(PricingResolution.RESOLVED);
-        assertThat(resolvedRequest.context().get(DefaultLedgerAdvisor.PRICING_PLAN_CONTEXT))
-                .isSameAs(plan);
+        assertThat(resolvedRequest.context().get(DefaultLedgerAdvisor.PRICING_SNAPSHOT_CONTEXT))
+                .isInstanceOfSatisfying(PricingSnapshot.class, resolvedSnapshot -> {
+                    assertThat(resolvedSnapshot.modelId()).isEqualTo("gpt-4o");
+                    assertThat(resolvedSnapshot.pricingPolicyId()).isEqualTo("standard");
+                    assertThat(resolvedSnapshot.catalogVersion()).isEqualTo(PricingSnapshot.DEFAULT_CATALOG_VERSION);
+                    assertThat(resolvedSnapshot.checkedAt()).isEqualTo(snapshot.checkedAt());
+                    assertThat(resolvedSnapshot.currency()).isEqualTo(Currency.getInstance("USD"));
+                    assertThat(resolvedSnapshot.rates()).containsAllEntriesOf(plan.rates());
+                });
 
-        ChatClientResponse response = response("gpt-4o", resolvedRequest.context());
-
-        advisor.after(response, mock(AdvisorChain.class));
-
-        verify(pricingRegistry, times(1)).getPlan("gpt-4o", "standard");
+        verify(pricingRegistry, times(1)).resolveSnapshot("gpt-4o", "standard");
         verifyNoMoreInteractions(pricingRegistry);
-        verify(ledgerManager, times(1)).record(same(plan), same(usage), anyMap());
-        verify(ledgerManager, never()).record(eq("gpt-4o"), same(usage), anyMap());
+        verifyNoInteractions(ledgerManager);
     }
 
     @Test
@@ -164,10 +176,8 @@ class DefaultLedgerAdvisorTest {
         LedgerManager ledgerManager = mock(LedgerManager.class);
         UsageExtractor extractor = mock(UsageExtractor.class);
         PricingRegistry pricingRegistry = mock(PricingRegistry.class);
-        TokenUsage usage = TokenUsage.from(100, 200);
 
-        when(extractor.extract(any())).thenReturn(usage);
-        when(pricingRegistry.getPlan("missing-model", PricingPlan.DEFAULT_PRICING_POLICY_ID))
+        when(pricingRegistry.resolveSnapshot("missing-model", PricingPlan.DEFAULT_PRICING_POLICY_ID))
                 .thenReturn(Optional.empty());
 
         DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(
@@ -187,10 +197,9 @@ class DefaultLedgerAdvisorTest {
 
         assertThat(resolvedRequest.context().get(DefaultLedgerAdvisor.PRICING_RESOLUTION_CONTEXT))
                 .isEqualTo(PricingResolution.MISSING_PLAN);
+        assertThat(resolvedRequest.context()).doesNotContainKey(DefaultLedgerAdvisor.PRICING_SNAPSHOT_CONTEXT);
 
-        advisor.after(response("missing-model", resolvedRequest.context()), mock(AdvisorChain.class));
-
-        verify(pricingRegistry, times(1)).getPlan("missing-model", PricingPlan.DEFAULT_PRICING_POLICY_ID);
+        verify(pricingRegistry, times(1)).resolveSnapshot("missing-model", PricingPlan.DEFAULT_PRICING_POLICY_ID);
         verifyNoMoreInteractions(pricingRegistry);
         verifyNoInteractions(ledgerManager);
     }

@@ -2,6 +2,7 @@ package io.tokenpilot.core.internal;
 
 import io.tokenpilot.core.domain.PricingPlan;
 import io.tokenpilot.core.domain.PricingResolution;
+import io.tokenpilot.core.domain.PricingSnapshot;
 import io.tokenpilot.core.domain.TokenType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -75,6 +76,31 @@ class InMemoryPricingRegistryTest {
 
         assertThat(registry.getPlan(modelId, "standard")).contains(standardPlan);
         assertThat(registry.getPlan(modelId, "discounted")).contains(discountedPlan);
+    }
+
+    @Test
+    @DisplayName("모델 ID와 pricing policy ID로 요청 단위 pricing snapshot을 조회할 수 있어야 한다")
+    void shouldGetSnapshotByModelIdAndPricingPolicyId() {
+        String modelId = "gpt-4o-2024-08-06";
+        String pricingPolicyId = "standard";
+        PricingPlan plan = new PricingPlan(
+                modelId,
+                pricingPolicyId,
+                Map.of(TokenType.PROMPT, new BigDecimal("0.0025")),
+                Currency.getInstance("USD")
+        );
+
+        registry.registerPlan(plan);
+
+        Optional<PricingSnapshot> snapshot = registry.resolveSnapshot(modelId, pricingPolicyId);
+
+        assertThat(snapshot).isPresent();
+        assertThat(snapshot.get().modelId()).isEqualTo(modelId);
+        assertThat(snapshot.get().pricingPolicyId()).isEqualTo(pricingPolicyId);
+        assertThat(snapshot.get().catalogVersion()).isEqualTo(PricingSnapshot.DEFAULT_CATALOG_VERSION);
+        assertThat(snapshot.get().checkedAt()).isNotNull();
+        assertThat(snapshot.get().currency()).isEqualTo(Currency.getInstance("USD"));
+        assertThat(snapshot.get().rates()).containsEntry(TokenType.PROMPT, new BigDecimal("0.0025"));
     }
 
     @Test

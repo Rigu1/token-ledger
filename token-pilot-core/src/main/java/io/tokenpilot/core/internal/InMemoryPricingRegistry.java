@@ -4,8 +4,10 @@ import io.tokenpilot.core.PricingRegistry;
 import io.tokenpilot.core.PricingProvider;
 import io.tokenpilot.core.domain.PricingPlan;
 import io.tokenpilot.core.domain.PricingResolution;
+import io.tokenpilot.core.domain.PricingSnapshot;
 import io.tokenpilot.core.domain.TokenType;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.Currency;
 import java.util.List;
@@ -41,6 +43,16 @@ class InMemoryPricingRegistry implements PricingRegistry {
     @Override
     public Optional<PricingPlan> getPlan(String modelId, String pricingPolicyId) {
         return Optional.ofNullable(plans.get(new PricingPlanKey(modelId, pricingPolicyId)));
+    }
+
+    @Override
+    public Optional<PricingSnapshot> resolveSnapshot(String modelId, String pricingPolicyId) {
+        return getPlan(modelId, pricingPolicyId)
+                .map(plan -> PricingSnapshot.from(
+                        plan,
+                        PricingSnapshot.DEFAULT_CATALOG_VERSION,
+                        Instant.now()
+                ));
     }
 
     @Override

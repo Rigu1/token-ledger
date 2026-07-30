@@ -1,7 +1,7 @@
 package io.tokenpilot.core;
 
 import io.tokenpilot.core.domain.Cost;
-    import io.tokenpilot.core.domain.PricingPlan;
+import io.tokenpilot.core.domain.PricingPlan;
 import io.tokenpilot.core.domain.TokenUsage;
 
 import java.util.Map;
