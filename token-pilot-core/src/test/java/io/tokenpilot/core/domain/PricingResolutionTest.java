@@ -64,4 +64,11 @@ class PricingResolutionTest {
         assertThat(PricingResolution.MISSING_RATE.name()).isEqualTo("MISSING_RATE");
         assertThat(PricingResolution.CURRENCY_MISMATCH.name()).isEqualTo("CURRENCY_MISMATCH");
     }
+
+    @Test
+    @DisplayName("PricingResolution은 RECONCILIATION_REQUIRED 상태값을 갖지 않는다")
+    void reconciliationRequiredIsNotPricingResolution() {
+        assertThat(PricingResolution.values())
+                .noneMatch(value -> value.name().equals("RECONCILIATION_REQUIRED"));
+    }
 }

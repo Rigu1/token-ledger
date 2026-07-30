@@ -29,6 +29,7 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
     static final String PRICING_POLICY_ID_CONTEXT = "tokenpilot.pricing.policy.id";
     static final String PRICING_SNAPSHOT_CONTEXT = "tokenpilot.pricing.snapshot";
     static final String PRICING_RESOLUTION_CONTEXT = "tokenpilot.pricing.resolution";
+    static final String PRICING_RECONCILIATION_RESULT_CONTEXT = "tokenpilot.pricing.reconciliation.result";
 
     private final LedgerManager ledgerManager;
     private final UsageExtractor usageExtractor;
@@ -57,7 +58,7 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
         ChatClientRequest resolvedRequest = request;
 
         if (budgetEvaluator != null) {
-            Map<String, String> tags = extractTagsFromRequest(request);
+            Map<String, String> tags = extractTags(request.context());
             BudgetDecision decision = budgetEvaluator.evaluate(tags);
             resolvedRequest = resolvedRequest.mutate()
                           .context(BUDGET_DECISION_CONTEXT, decision)
@@ -76,26 +77,48 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
         TokenUsage usage = usageExtractor.extract(response);
         
         String modelId = extractModelId(response);
+        String responseModelId = extractResponseModelId(response);
         Map<String, String> tags = extractTags(response);
 
         Optional<PricingSnapshot> snapshot = extractPricingSnapshot(response);
         boolean hasPricingResolution = hasPricingResolution(response);
         if (snapshot.isPresent()) {
+            if (!snapshot.get().modelId().equals(responseModelId)) {
+                return withReconciliationResult(response, PricingReconciliationResult.RECONCILIATION_REQUIRED);
+            }
+
             Cost cost = ledgerManager.record(snapshot.get(), usage, tags);
+            ChatClientResponse reconciledResponse = withReconciliationResult(
+                    response,
+                    PricingReconciliationResult.RECONCILED
+            );
             if (budgetStateStore != null) {
-                BudgetDecision decision = extractBudgetDecision(response);
+                BudgetDecision decision = extractBudgetDecision(reconciledResponse);
                 budgetStateStore.addCost(
                     decision.key(),
                     decision.limit(),
                     cost
                 );
             }
+            return reconciledResponse;
         } else if (!hasPricingResolution) {
             ledgerManager.record(modelId, usage, tags);
             recordLegacyBudgetCost(modelId, usage, response);
         }
 
         return response;
+    }
+
+    private ChatClientResponse withReconciliationResult(
+            ChatClientResponse response,
+            PricingReconciliationResult result
+    ) {
+        Map<String, Object> context = new HashMap<>();
+        if (response.context() != null) {
+            context.putAll(response.context());
+        }
+        context.put(PRICING_RECONCILIATION_RESULT_CONTEXT, result);
+        return new ChatClientResponse(response.chatResponse(), context);
     }
 
     private void recordLegacyBudgetCost(String modelId, TokenUsage usage, ChatClientResponse response) {
@@ -164,6 +187,16 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
         return "unknown-model";
     }
 
+    private String extractResponseModelId(ChatClientResponse response) {
+        if (response.chatResponse() != null && response.chatResponse().getMetadata() != null) {
+            String model = response.chatResponse().getMetadata().getModel();
+            if (model != null && !model.isBlank()) {
+                return model;
+            }
+        }
+        return extractModelId(response);
+    }
+
     private String extractPricingPolicyId(ChatClientRequest request) {
         Object value = request.context().get(PRICING_POLICY_ID_CONTEXT);
         if (value instanceof String pricingPolicyId && !pricingPolicyId.isBlank()) {
@@ -194,18 +227,7 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
     }
 
     private Map<String, String> extractTags(ChatClientResponse response) {
-        Map<String, String> tags = new HashMap<>();
-        
-        Map<String, Object> context = response.context();
-        if (context != null) {
-            context.forEach((k, v) -> {
-                if (v instanceof String s) {
-                    tags.put(k, s);
-                }
-            });
-        }
-
-        return tags;
+        return extractTags(response.context());
     }
 
     private BudgetDecision extractBudgetDecision(ChatClientResponse response) {
@@ -221,16 +243,17 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
         throw new IllegalStateException("Resolved budget decision is missing from response context");
     }
 
-    private Map<String, String> extractTagsFromRequest(ChatClientRequest request) {
+    private Map<String, String> extractTags(Map<String, Object> context) {
         Map<String, String> tags = new HashMap<>();
-        Map<String, Object> context = request.context();
-        if (context != null) {
-            context.forEach((k, v) -> {
-                if (v instanceof String s) {
-                    tags.put(k, s);
-                }
-            });
+        if (context == null) {
+            return tags;
         }
+
+        context.forEach((k, v) -> {
+            if (v instanceof String s) {
+                tags.put(k, s);
+            }
+        });
         return tags;
     }
 }

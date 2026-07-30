@@ -209,12 +209,70 @@ class DefaultLedgerAdvisorTest {
         );
         ChatClientRequest resolvedRequest = advisor.before(request, mock(AdvisorChain.class));
 
-        advisor.after(response("gpt-4o", resolvedRequest.context()), mock(AdvisorChain.class));
+        ChatClientResponse reconciledResponse = advisor.after(
+                response("gpt-4o", resolvedRequest.context()),
+                mock(AdvisorChain.class)
+        );
+
+        assertThat(reconciledResponse.context().get(DefaultLedgerAdvisor.PRICING_RECONCILIATION_RESULT_CONTEXT))
+                .isEqualTo(PricingReconciliationResult.RECONCILED);
 
         verify(pricingRegistry, times(1)).resolveSnapshot("gpt-4o", "standard");
         verifyNoMoreInteractions(pricingRegistry);
         verify(ledgerManager, times(1)).record(same(snapshot), same(usage), anyMap());
         verify(ledgerManager, never()).record(eq("gpt-4o"), same(usage), anyMap());
+    }
+
+    @Test
+    @DisplayName("response model이 snapshot model과 다르면 기존 snapshot을 자동 적용하지 않아야 한다")
+    void requireReconciliationWhenResponseModelDiffersFromSnapshotModel() {
+        LedgerManager ledgerManager = mock(LedgerManager.class);
+        UsageExtractor extractor = mock(UsageExtractor.class);
+        PricingRegistry pricingRegistry = mock(PricingRegistry.class);
+        TokenUsage usage = TokenUsage.from(100, 200);
+        PricingPlan plan = new PricingPlan(
+                "gpt-4o-mini",
+                "standard",
+                new BigDecimal("0.01"),
+                new BigDecimal("0.03"),
+                Currency.getInstance("USD")
+        );
+        PricingSnapshot snapshot = PricingSnapshot.from(
+                plan,
+                PricingSnapshot.DEFAULT_CATALOG_VERSION,
+                Instant.parse("2026-07-30T00:00:00Z")
+        );
+
+        when(extractor.extract(any())).thenReturn(usage);
+        when(pricingRegistry.resolveSnapshot("gpt-4o-mini", "standard")).thenReturn(Optional.of(snapshot));
+
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(
+                ledgerManager,
+                extractor,
+                null,
+                null,
+                mock(CostCalculator.class),
+                pricingRegistry
+        );
+        ChatClientRequest request = new ChatClientRequest(
+                new Prompt("test"),
+                Map.of(
+                        DefaultLedgerAdvisor.MODEL_ID_CONTEXT, "gpt-4o-mini",
+                        DefaultLedgerAdvisor.PRICING_POLICY_ID_CONTEXT, "standard"
+                )
+        );
+        ChatClientRequest resolvedRequest = advisor.before(request, mock(AdvisorChain.class));
+
+        ChatClientResponse result = advisor.after(
+                response("gpt-4o", resolvedRequest.context()),
+                mock(AdvisorChain.class)
+        );
+
+        assertThat(result.context().get(DefaultLedgerAdvisor.PRICING_RECONCILIATION_RESULT_CONTEXT))
+                .isEqualTo(PricingReconciliationResult.RECONCILIATION_REQUIRED);
+        verify(pricingRegistry, times(1)).resolveSnapshot("gpt-4o-mini", "standard");
+        verifyNoMoreInteractions(pricingRegistry);
+        verifyNoInteractions(ledgerManager);
     }
 
     @Test
