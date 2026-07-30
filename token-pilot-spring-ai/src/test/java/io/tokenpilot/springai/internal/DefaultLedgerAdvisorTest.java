@@ -381,6 +381,46 @@ class DefaultLedgerAdvisorTest {
     }
 
     @Test
+    @DisplayName("FAIL_OPEN은 model id가 없어도 MISSING_PLAN을 보존하고 UNPRICED로 남겨야 한다")
+    void failOpenPreservesMissingPlanWhenModelIdIsMissing() {
+        LedgerManager ledgerManager = mock(LedgerManager.class);
+        UsageExtractor extractor = mock(UsageExtractor.class);
+        PricingRegistry pricingRegistry = mock(PricingRegistry.class);
+        TokenUsage usage = TokenUsage.from(100, 200);
+
+        when(extractor.extract(any())).thenReturn(usage);
+
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(
+                ledgerManager,
+                extractor,
+                null,
+                null,
+                mock(CostCalculator.class),
+                pricingRegistry
+        );
+        ChatClientRequest request = new ChatClientRequest(
+                new Prompt("test"),
+                Map.of()
+        );
+
+        ChatClientRequest resolvedRequest = advisor.before(request, mock(AdvisorChain.class));
+
+        assertThat(resolvedRequest.context().get(DefaultLedgerAdvisor.PRICING_RESOLUTION_CONTEXT))
+                .isEqualTo(PricingResolution.MISSING_PLAN);
+        assertThat(resolvedRequest.context()).doesNotContainKey(DefaultLedgerAdvisor.PRICING_SNAPSHOT_CONTEXT);
+
+        ChatClientResponse unpricedResponse = advisor.after(
+                response("unknown-model", resolvedRequest.context()),
+                mock(AdvisorChain.class)
+        );
+
+        assertThat(unpricedResponse.context().get(DefaultLedgerAdvisor.PRICING_RECONCILIATION_RESULT_CONTEXT))
+                .isEqualTo(PricingReconciliationResult.UNPRICED);
+        verifyNoInteractions(pricingRegistry);
+        verifyNoInteractions(ledgerManager);
+    }
+
+    @Test
     @DisplayName("missing pricing은 CostBound 실패로 전파할 PricingResolution을 보존해야 한다")
     void preserveMissingPricingResolutionForCostBoundFailure() {
         LedgerManager ledgerManager = mock(LedgerManager.class);
