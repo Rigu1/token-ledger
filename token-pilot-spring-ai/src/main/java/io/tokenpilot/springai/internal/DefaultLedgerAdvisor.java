@@ -168,6 +168,7 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
     private ChatClientRequest resolvePricing(ChatClientRequest request) {
         String modelId = extractModelId(request);
         if (modelId == null) {
+            rejectMissingPricingIfFailClosed(PricingResolution.MISSING_PLAN);
             return request;
         }
 

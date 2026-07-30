@@ -459,6 +459,42 @@ class DefaultLedgerAdvisorTest {
     }
 
     @Test
+    @DisplayName("FAIL_CLOSED는 model id가 없으면 provider 호출 전에 차단하고 invocation count를 0으로 유지해야 한다")
+    void failClosedBlocksMissingModelIdBeforeProviderCall() {
+        LedgerManager ledgerManager = mock(LedgerManager.class);
+        UsageExtractor extractor = mock(UsageExtractor.class);
+        PricingRegistry pricingRegistry = mock(PricingRegistry.class);
+        AtomicInteger providerInvocationCount = new AtomicInteger();
+
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(
+                ledgerManager,
+                extractor,
+                null,
+                null,
+                mock(CostCalculator.class),
+                pricingRegistry,
+                MissingPricingPolicy.FAIL_CLOSED
+        );
+        ChatClientRequest request = new ChatClientRequest(
+                new Prompt("test"),
+                Map.of()
+        );
+
+        assertThatThrownBy(() -> {
+            advisor.before(request, mock(AdvisorChain.class));
+            providerInvocationCount.incrementAndGet();
+        })
+                .isInstanceOf(MissingPricingException.class)
+                .hasMessage("MISSING_PLAN")
+                .extracting(exception -> ((MissingPricingException) exception).getResolution())
+                .isEqualTo(PricingResolution.MISSING_PLAN);
+
+        assertThat(providerInvocationCount).hasValue(0);
+        verifyNoInteractions(pricingRegistry);
+        verifyNoInteractions(ledgerManager);
+    }
+
+    @Test
     @DisplayName("FAIL_CLOSED는 provider 호출 전에 MISSING_RATE를 차단하고 invocation count를 0으로 유지해야 한다")
     void failClosedBlocksMissingRateBeforeProviderCall() {
         LedgerManager ledgerManager = mock(LedgerManager.class);
