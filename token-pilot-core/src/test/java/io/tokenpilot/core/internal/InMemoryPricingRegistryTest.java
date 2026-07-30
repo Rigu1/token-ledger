@@ -104,6 +104,31 @@ class InMemoryPricingRegistryTest {
     }
 
     @Test
+    @DisplayName("#32가 같은 model id로 resolve한 입력은 동일 pricing policy snapshot을 사용해야 한다")
+    void shouldUseSameSnapshotWhenResolvedModelIdIsSame() {
+        String modelId = "gpt-4o-2024-08-06";
+        String aliasResolvedModelId = modelId;
+        String canonicalModelId = modelId;
+        String pricingPolicyId = "standard";
+        PricingPlan plan = new PricingPlan(
+                modelId,
+                pricingPolicyId,
+                Map.of(TokenType.PROMPT, new BigDecimal("0.0025")),
+                Currency.getInstance("USD")
+        );
+        registry.registerPlan(plan);
+
+        PricingSnapshot aliasSnapshot = registry.resolveSnapshot(aliasResolvedModelId, pricingPolicyId).orElseThrow();
+        PricingSnapshot canonicalSnapshot = registry.resolveSnapshot(canonicalModelId, pricingPolicyId).orElseThrow();
+
+        assertThat(aliasSnapshot.modelId()).isEqualTo(canonicalSnapshot.modelId());
+        assertThat(aliasSnapshot.pricingPolicyId()).isEqualTo(canonicalSnapshot.pricingPolicyId());
+        assertThat(aliasSnapshot.catalogVersion()).isEqualTo(canonicalSnapshot.catalogVersion());
+        assertThat(aliasSnapshot.currency()).isEqualTo(canonicalSnapshot.currency());
+        assertThat(aliasSnapshot.rates()).containsAllEntriesOf(canonicalSnapshot.rates());
+    }
+
+    @Test
     @DisplayName("registry 변경 후 새 요청은 변경된 pricing plan으로 snapshot을 resolve해야 한다")
     void shouldResolveNewSnapshotAfterRegistryChanges() {
         String modelId = "gpt-4o-2024-08-06";
