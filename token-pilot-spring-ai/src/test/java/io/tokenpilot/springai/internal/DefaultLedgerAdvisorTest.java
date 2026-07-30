@@ -459,6 +459,59 @@ class DefaultLedgerAdvisorTest {
     }
 
     @Test
+    @DisplayName("FAIL_CLOSED는 provider 호출 전에 MISSING_RATE를 차단하고 invocation count를 0으로 유지해야 한다")
+    void failClosedBlocksMissingRateBeforeProviderCall() {
+        LedgerManager ledgerManager = mock(LedgerManager.class);
+        UsageExtractor extractor = mock(UsageExtractor.class);
+        PricingRegistry pricingRegistry = mock(PricingRegistry.class);
+        AtomicInteger providerInvocationCount = new AtomicInteger();
+        PricingPlan plan = new PricingPlan(
+                "prompt-only-model",
+                Map.of(TokenType.PROMPT, new BigDecimal("0.01")),
+                Currency.getInstance("USD")
+        );
+        PricingSnapshot snapshot = PricingSnapshot.from(
+                plan,
+                PricingSnapshot.DEFAULT_CATALOG_VERSION,
+                Instant.parse("2026-07-30T00:00:00Z")
+        );
+
+        when(pricingRegistry.resolveSnapshot("prompt-only-model", PricingPlan.DEFAULT_PRICING_POLICY_ID))
+                .thenReturn(Optional.of(snapshot));
+
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(
+                ledgerManager,
+                extractor,
+                null,
+                null,
+                mock(CostCalculator.class),
+                pricingRegistry,
+                MissingPricingPolicy.FAIL_CLOSED
+        );
+        ChatClientRequest request = new ChatClientRequest(
+                new Prompt("test"),
+                Map.of(
+                        DefaultLedgerAdvisor.MODEL_ID_CONTEXT, "prompt-only-model",
+                        DefaultLedgerAdvisor.REQUIRED_TOKEN_TYPE_CONTEXT, TokenType.COMPLETION
+                )
+        );
+
+        assertThatThrownBy(() -> {
+            advisor.before(request, mock(AdvisorChain.class));
+            providerInvocationCount.incrementAndGet();
+        })
+                .isInstanceOf(MissingPricingException.class)
+                .hasMessage("MISSING_RATE")
+                .extracting(exception -> ((MissingPricingException) exception).getResolution())
+                .isEqualTo(PricingResolution.MISSING_RATE);
+
+        assertThat(providerInvocationCount).hasValue(0);
+        verify(pricingRegistry, times(1)).resolveSnapshot("prompt-only-model", PricingPlan.DEFAULT_PRICING_POLICY_ID);
+        verifyNoMoreInteractions(pricingRegistry);
+        verifyNoInteractions(ledgerManager);
+    }
+
+    @Test
     @DisplayName("AI 호출 전 BudgetEvaluator를 통해 예산을 체크해야 한다")
     void checkBudgetBeforeAIRequest() {
         BudgetEvaluator budgetEvaluator = mock(BudgetEvaluator.class);

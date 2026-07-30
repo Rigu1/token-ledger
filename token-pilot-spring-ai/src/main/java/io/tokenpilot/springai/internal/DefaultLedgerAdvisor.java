@@ -31,6 +31,7 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
     static final String PRICING_SNAPSHOT_CONTEXT = "tokenpilot.pricing.snapshot";
     static final String PRICING_RESOLUTION_CONTEXT = "tokenpilot.pricing.resolution";
     static final String PRICING_RECONCILIATION_RESULT_CONTEXT = "tokenpilot.pricing.reconciliation.result";
+    static final String REQUIRED_TOKEN_TYPE_CONTEXT = "tokenpilot.pricing.required.token.type";
 
     private final LedgerManager ledgerManager;
     private final UsageExtractor usageExtractor;
@@ -168,16 +169,51 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
 
         String pricingPolicyId = extractPricingPolicyId(request);
         Optional<PricingSnapshot> snapshot = pricingRegistry.resolveSnapshot(modelId, pricingPolicyId);
-        PricingResolution resolution = snapshot.isPresent()
-                ? PricingResolution.RESOLVED
-                : PricingResolution.MISSING_PLAN;
+        PricingResolution resolution = resolvePricingResolution(request, snapshot);
         rejectMissingPricingIfFailClosed(resolution);
 
+        return withPricingContext(request, pricingPolicyId, resolution, snapshot);
+    }
+
+    private PricingResolution resolvePricingResolution(
+            ChatClientRequest request,
+            Optional<PricingSnapshot> snapshot
+    ) {
+        if (snapshot.isEmpty()) {
+            return PricingResolution.MISSING_PLAN;
+        }
+
+        Optional<TokenType> requiredTokenType = extractRequiredTokenType(request);
+        if (requiredTokenType.isEmpty()) {
+            return PricingResolution.RESOLVED;
+        }
+
+        return resolveSnapshotRate(snapshot.get(), requiredTokenType.get());
+    }
+
+    private ChatClientRequest withPricingContext(
+            ChatClientRequest request,
+            String pricingPolicyId,
+            PricingResolution resolution,
+            Optional<PricingSnapshot> snapshot
+    ) {
         ChatClientRequest.Builder builder = request.mutate()
                 .context(PRICING_POLICY_ID_CONTEXT, pricingPolicyId)
                 .context(PRICING_RESOLUTION_CONTEXT, resolution);
-        snapshot.ifPresent(value -> builder.context(PRICING_SNAPSHOT_CONTEXT, value));
+        if (resolution.isResolved()) {
+            snapshot.ifPresent(value -> builder.context(PRICING_SNAPSHOT_CONTEXT, value));
+        }
         return builder.build();
+    }
+
+    private PricingResolution resolveSnapshotRate(PricingSnapshot snapshot, TokenType tokenType) {
+        PricingPlan plan = new PricingPlan(
+                snapshot.modelId(),
+                snapshot.pricingPolicyId(),
+                snapshot.rates(),
+                snapshot.currency()
+        );
+        return plan.resolveRate(tokenType);
     }
 
     private void rejectMissingPricingIfFailClosed(PricingResolution resolution) {
@@ -234,6 +270,14 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
             return pricingPolicyId;
         }
         return PricingPlan.DEFAULT_PRICING_POLICY_ID;
+    }
+
+    private Optional<TokenType> extractRequiredTokenType(ChatClientRequest request) {
+        Object value = request.context().get(REQUIRED_TOKEN_TYPE_CONTEXT);
+        if (value instanceof TokenType tokenType) {
+            return Optional.of(tokenType);
+        }
+        return Optional.empty();
     }
 
     private Optional<PricingSnapshot> extractPricingSnapshot(ChatClientResponse response) {
