@@ -14,6 +14,7 @@ import org.springframework.ai.chat.client.advisor.api.AdvisorChain;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -69,7 +70,10 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
         this.budgetStateStore = budgetStateStore;
         this.costCalculator = costCalculator;
         this.pricingRegistry = pricingRegistry;
-        this.missingPricingPolicy = missingPricingPolicy;
+        this.missingPricingPolicy = Objects.requireNonNull(
+                missingPricingPolicy,
+                "missingPricingPolicy must not be null"
+        );
     }
 
     @Override
