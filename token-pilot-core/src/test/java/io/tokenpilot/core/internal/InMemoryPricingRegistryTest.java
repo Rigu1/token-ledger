@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.util.Currency;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -50,5 +51,21 @@ class InMemoryPricingRegistryTest {
 
         assertThat(resolution).isEqualTo(PricingResolution.MISSING_PLAN);
         assertThat(resolution.isResolved()).isFalse();
+    }
+
+    @Test
+    @DisplayName("등록된 모델의 가격 결정 결과는 PricingPlan resolveRate 결과를 따라야 한다")
+    void shouldDelegateRateResolutionToRegisteredPlan() {
+        PricingPlan plan = new PricingPlan(
+                "prompt-only-model",
+                Map.of(TokenType.PROMPT, new BigDecimal("0.015")),
+                Currency.getInstance("USD")
+        );
+        registry.registerPlan(plan);
+
+        assertThat(registry.resolveRate("prompt-only-model", TokenType.PROMPT))
+                .isEqualTo(PricingResolution.RESOLVED);
+        assertThat(registry.resolveRate("prompt-only-model", TokenType.COMPLETION))
+                .isEqualTo(PricingResolution.MISSING_RATE);
     }
 }
