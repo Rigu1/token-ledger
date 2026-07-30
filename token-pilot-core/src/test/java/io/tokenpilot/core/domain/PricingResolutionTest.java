@@ -60,9 +60,28 @@ class PricingResolutionTest {
     @Test
     @DisplayName("PricingResolution 자체가 low-cardinality pricing miss reason이다")
     void resolutionItselfIsLowCardinalityReason() {
-        assertThat(PricingResolution.MISSING_PLAN.name()).isEqualTo("MISSING_PLAN");
-        assertThat(PricingResolution.MISSING_RATE.name()).isEqualTo("MISSING_RATE");
-        assertThat(PricingResolution.CURRENCY_MISMATCH.name()).isEqualTo("CURRENCY_MISMATCH");
+        assertThat(PricingResolution.values())
+                .filteredOn(resolution -> !resolution.isResolved())
+                .extracting(PricingResolution::name)
+                .containsExactly(
+                        "MISSING_PLAN",
+                        "MISSING_RATE",
+                        "CURRENCY_MISMATCH"
+                );
+    }
+
+    @Test
+    @DisplayName("pricing miss reason은 model/tenant/user id를 포함하지 않는다")
+    void pricingMissReasonDoesNotContainHighCardinalityIdentifiers() {
+        assertThat(PricingResolution.values())
+                .filteredOn(resolution -> !resolution.isResolved())
+                .extracting(PricingResolution::name)
+                .allSatisfy(reason -> assertThat(reason)
+                        .doesNotContain("gpt")
+                        .doesNotContain("model")
+                        .doesNotContain("tenant")
+                        .doesNotContain("user")
+                        .doesNotContain("policy"));
     }
 
     @Test
