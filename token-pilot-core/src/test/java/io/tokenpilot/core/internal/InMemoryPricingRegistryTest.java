@@ -34,6 +34,50 @@ class InMemoryPricingRegistryTest {
     }
 
     @Test
+    @DisplayName("모델 ID와 pricing policy ID로 가격 정책을 조회할 수 있어야 한다")
+    void shouldRegisterAndGetPlanByModelIdAndPricingPolicyId() {
+        String modelId = "gpt-4o-2024-08-06";
+        String pricingPolicyId = "openai-gpt-4o-2024-08-06-standard";
+        PricingPlan plan = new PricingPlan(
+                modelId,
+                pricingPolicyId,
+                Map.of(TokenType.PROMPT, new BigDecimal("0.0025")),
+                Currency.getInstance("USD")
+        );
+
+        registry.registerPlan(plan);
+        Optional<PricingPlan> retrieved = registry.getPlan(modelId, pricingPolicyId);
+
+        assertThat(retrieved).isPresent();
+        assertThat(retrieved.get().modelId()).isEqualTo(modelId);
+        assertThat(retrieved.get().pricingPolicyId()).isEqualTo(pricingPolicyId);
+    }
+
+    @Test
+    @DisplayName("동일 모델 ID라도 pricing policy ID가 다르면 다른 가격 정책으로 조회되어야 한다")
+    void shouldDistinguishPlansByPricingPolicyId() {
+        String modelId = "gpt-4o-2024-08-06";
+        PricingPlan standardPlan = new PricingPlan(
+                modelId,
+                "standard",
+                Map.of(TokenType.PROMPT, new BigDecimal("0.0025")),
+                Currency.getInstance("USD")
+        );
+        PricingPlan discountedPlan = new PricingPlan(
+                modelId,
+                "discounted",
+                Map.of(TokenType.PROMPT, new BigDecimal("0.0010")),
+                Currency.getInstance("USD")
+        );
+
+        registry.registerPlan(standardPlan);
+        registry.registerPlan(discountedPlan);
+
+        assertThat(registry.getPlan(modelId, "standard")).contains(standardPlan);
+        assertThat(registry.getPlan(modelId, "discounted")).contains(discountedPlan);
+    }
+
+    @Test
     @DisplayName("등록되지 않은 모델 조회 시 빈 Optional을 반환해야 한다")
     void shouldReturnEmptyWhenNotFound() {
         // When

@@ -16,10 +16,17 @@ import java.util.Map;
  */
 public record PricingPlan(
         String modelId,
+        String pricingPolicyId,
         Map<TokenType, BigDecimal> rates,
         Currency currency
 ) {
+    public static final String DEFAULT_PRICING_POLICY_ID = "default";
+
     public PricingPlan {
+        if (pricingPolicyId == null || pricingPolicyId.isBlank()) {
+            throw new IllegalArgumentException("pricingPolicyId must not be blank");
+        }
+
         rates = Collections.unmodifiableMap(new EnumMap<>(rates));
         if (currency == null) {
             currency = Currency.getInstance("USD");
@@ -32,11 +39,22 @@ public record PricingPlan(
         });
     }
 
+    public PricingPlan(String modelId, Map<TokenType, BigDecimal> rates, Currency currency) {
+        this(modelId, DEFAULT_PRICING_POLICY_ID, rates, currency);
+    }
+
     /**
      * 기본 입력/출력 단가와 통화를 사용하는 {@link PricingPlan}을 생성합니다.
      */
     public PricingPlan(String modelId, BigDecimal promptPricePerK, BigDecimal completionPricePerK, Currency currency) {
-        this(modelId, createRates(promptPricePerK, completionPricePerK), currency);
+        this(modelId, DEFAULT_PRICING_POLICY_ID, createRates(promptPricePerK, completionPricePerK), currency);
+    }
+
+    /**
+     * 기본 입력/출력 단가와 pricing policy id, 통화를 사용하는 {@link PricingPlan}을 생성합니다.
+     */
+    public PricingPlan(String modelId, String pricingPolicyId, BigDecimal promptPricePerK, BigDecimal completionPricePerK, Currency currency) {
+        this(modelId, pricingPolicyId, createRates(promptPricePerK, completionPricePerK), currency);
     }
 
     /**

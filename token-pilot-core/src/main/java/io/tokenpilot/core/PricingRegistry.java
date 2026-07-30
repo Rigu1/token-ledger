@@ -19,6 +19,14 @@ public interface PricingRegistry {
     Optional<PricingPlan> getPlan(String modelId);
 
     /**
+     * 모델 식별자와 pricing policy id로 등록된 가격 정책을 조회합니다.
+     * @param modelId 모델 식별자
+     * @param pricingPolicyId pricing policy 식별자
+     * @return 가격 정책 (존재하지 않을 경우 empty)
+     */
+    Optional<PricingPlan> getPlan(String modelId, String pricingPolicyId);
+
+    /**
      * 모델과 토큰 타입에 대한 가격 결정 결과를 조회합니다.
      * @param modelId 모델 식별자
      * @param tokenType 토큰 타입

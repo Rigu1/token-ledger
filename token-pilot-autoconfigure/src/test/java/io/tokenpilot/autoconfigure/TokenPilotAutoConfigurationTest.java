@@ -15,6 +15,8 @@ import io.tokenpilot.core.PricingProvider;
 import io.tokenpilot.core.PricingRegistry;
 import io.tokenpilot.core.domain.Cost;
 import io.tokenpilot.core.domain.PricingPlan;
+import io.tokenpilot.core.domain.PricingResolution;
+import io.tokenpilot.core.domain.TokenType;
 import io.tokenpilot.core.domain.TokenUsage;
 import io.tokenpilot.notification.BudgetNotificationHandler;
 import io.tokenpilot.notification.BudgetNotificationService;
@@ -378,6 +380,9 @@ class TokenPilotAutoConfigurationTest {
     static class UserCustomPricingRegistry implements PricingRegistry {
         @Override public void registerPlan(PricingPlan plan) {}
         @Override public Optional<PricingPlan> getPlan(String modelId) { return Optional.empty(); }
+        @Override public Optional<PricingPlan> getPlan(String modelId, String pricingPolicyId) { return Optional.empty(); }
+        @Override public PricingResolution resolveRate(String modelId, TokenType tokenType) { return PricingResolution.MISSING_PLAN; }
+        @Override public PricingResolution resolveRate(String modelId, TokenType tokenType, Currency expectedCurrency) { return PricingResolution.MISSING_PLAN; }
     }
 
     @Configuration(proxyBeanMethods = false)
