@@ -21,17 +21,15 @@ class InMemoryPricingRegistryTest {
     @Test
     @DisplayName("가격 정책을 등록하고 모델 ID로 조회할 수 있어야 한다")
     void shouldRegisterAndGetPlan() {
-        // Given
-        PricingPlan plan = new PricingPlan("claude-3",
+        String modelId = "claude-3-5-sonnet-20241022";
+        PricingPlan plan = new PricingPlan(modelId,
                 new BigDecimal("0.015"), new BigDecimal("0.075"), Currency.getInstance("USD"));
 
-        // When
         registry.registerPlan(plan);
-        Optional<PricingPlan> retrieved = registry.getPlan("claude-3");
+        Optional<PricingPlan> retrieved = registry.getPlan(modelId);
 
-        // Then
         assertThat(retrieved).isPresent();
-        assertThat(retrieved.get().modelId()).isEqualTo("claude-3");
+        assertThat(retrieved.get().modelId()).isEqualTo(modelId);
         assertThat(retrieved.get().promptPricePerK()).isEqualByComparingTo("0.015");
     }
 
