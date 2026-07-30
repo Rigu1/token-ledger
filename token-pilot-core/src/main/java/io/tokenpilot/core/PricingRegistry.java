@@ -19,7 +19,7 @@ public interface PricingRegistry {
 
     /**
      * 모델과 토큰 타입에 대한 가격 결정 결과를 조회합니다.
-     * 등록되지 않은 모델은 {@link io.tokenpilot.core.domain.PricingResolutionStatus#MISSING_PLAN}으로 표현합니다.
+     * 등록되지 않은 모델은 {@link PricingResolution#MISSING_PLAN}으로 표현합니다.
      * @param modelId 모델 식별자
      * @param tokenType 토큰 타입
      * @return 가격 결정 결과
@@ -27,7 +27,7 @@ public interface PricingRegistry {
     default PricingResolution resolveRate(String modelId, TokenType tokenType) {
         return getPlan(modelId)
                 .map(plan -> plan.resolveRate(tokenType))
-                .orElseGet(PricingResolution::missingPlan);
+                .orElse(PricingResolution.MISSING_PLAN);
     }
 
     /**

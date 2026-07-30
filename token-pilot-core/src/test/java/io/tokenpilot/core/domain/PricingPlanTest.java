@@ -22,7 +22,7 @@ class PricingPlanTest {
 
         PricingResolution resolution = plan.resolveRate(TokenType.PROMPT);
 
-        assertThat(resolution.status()).isEqualTo(PricingResolutionStatus.RESOLVED);
+        assertThat(resolution).isEqualTo(PricingResolution.RESOLVED);
         assertThat(resolution.isResolved()).isTrue();
     }
 
@@ -37,7 +37,7 @@ class PricingPlanTest {
 
         PricingResolution resolution = plan.resolveRate(TokenType.PROMPT);
 
-        assertThat(resolution.status()).isEqualTo(PricingResolutionStatus.RESOLVED);
+        assertThat(resolution).isEqualTo(PricingResolution.RESOLVED);
         assertThat(resolution.isResolved()).isTrue();
     }
 
@@ -52,7 +52,7 @@ class PricingPlanTest {
 
         PricingResolution resolution = plan.resolveRate(TokenType.COMPLETION);
 
-        assertThat(resolution.status()).isEqualTo(PricingResolutionStatus.MISSING_RATE);
+        assertThat(resolution).isEqualTo(PricingResolution.MISSING_RATE);
         assertThat(resolution.isResolved()).isFalse();
     }
 
@@ -68,7 +68,7 @@ class PricingPlanTest {
         assertThat(plan.getRate(TokenType.COMPLETION)).isEqualByComparingTo(BigDecimal.ZERO);
 
         PricingResolution resolution = plan.resolveRate(TokenType.COMPLETION);
-        assertThat(resolution.status()).isEqualTo(PricingResolutionStatus.MISSING_RATE);
+        assertThat(resolution).isEqualTo(PricingResolution.MISSING_RATE);
         assertThat(resolution.isResolved()).isFalse();
     }
 }
