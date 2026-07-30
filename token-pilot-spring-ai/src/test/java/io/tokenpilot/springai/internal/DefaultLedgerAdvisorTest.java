@@ -227,6 +227,64 @@ class DefaultLedgerAdvisorTest {
     }
 
     @Test
+    @DisplayName("explicit zero는 FAIL_CLOSED에서도 RESOLVED로 처리하고 0원 cost로 reconcile해야 한다")
+    void explicitZeroResolvesAndReconcilesWithZeroCost() {
+        LedgerManager ledgerManager = mock(LedgerManager.class);
+        UsageExtractor extractor = mock(UsageExtractor.class);
+        PricingRegistry pricingRegistry = mock(PricingRegistry.class);
+        TokenUsage usage = TokenUsage.from(100, 200);
+        PricingPlan plan = new PricingPlan(
+                "free-model",
+                BigDecimal.ZERO,
+                BigDecimal.ZERO,
+                Currency.getInstance("USD")
+        );
+        PricingSnapshot snapshot = PricingSnapshot.from(
+                plan,
+                PricingSnapshot.DEFAULT_CATALOG_VERSION,
+                Instant.parse("2026-07-30T00:00:00Z")
+        );
+        Cost zeroCost = Cost.zero(Currency.getInstance("USD"));
+
+        when(extractor.extract(any())).thenReturn(usage);
+        when(pricingRegistry.resolveSnapshot("free-model", PricingPlan.DEFAULT_PRICING_POLICY_ID))
+                .thenReturn(Optional.of(snapshot));
+        when(ledgerManager.record(same(snapshot), same(usage), anyMap())).thenReturn(zeroCost);
+
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(
+                ledgerManager,
+                extractor,
+                null,
+                null,
+                mock(CostCalculator.class),
+                pricingRegistry,
+                MissingPricingPolicy.FAIL_CLOSED
+        );
+        ChatClientRequest request = new ChatClientRequest(
+                new Prompt("test"),
+                Map.of(DefaultLedgerAdvisor.MODEL_ID_CONTEXT, "free-model")
+        );
+
+        ChatClientRequest resolvedRequest = advisor.before(request, mock(AdvisorChain.class));
+
+        assertThat(resolvedRequest.context().get(DefaultLedgerAdvisor.PRICING_RESOLUTION_CONTEXT))
+                .isEqualTo(PricingResolution.RESOLVED);
+        assertThat(resolvedRequest.context().get(DefaultLedgerAdvisor.PRICING_SNAPSHOT_CONTEXT))
+                .isSameAs(snapshot);
+
+        ChatClientResponse reconciledResponse = advisor.after(
+                response("free-model", resolvedRequest.context()),
+                mock(AdvisorChain.class)
+        );
+
+        assertThat(reconciledResponse.context().get(DefaultLedgerAdvisor.PRICING_RECONCILIATION_RESULT_CONTEXT))
+                .isEqualTo(PricingReconciliationResult.RECONCILED);
+        assertThat(reconciledResponse.context().get(DefaultLedgerAdvisor.PRICING_RECONCILIATION_RESULT_CONTEXT))
+                .isNotEqualTo(PricingReconciliationResult.UNPRICED);
+        verify(ledgerManager, times(1)).record(same(snapshot), same(usage), anyMap());
+    }
+
+    @Test
     @DisplayName("response model이 snapshot model과 다르면 기존 snapshot을 자동 적용하지 않아야 한다")
     void requireReconciliationWhenResponseModelDiffersFromSnapshotModel() {
         LedgerManager ledgerManager = mock(LedgerManager.class);

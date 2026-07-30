@@ -105,4 +105,31 @@ class DefaultLedgerManagerTest {
                 event.cost().equals(cost)
         ));
     }
+
+    @Test
+    @DisplayName("명시적 0 rate snapshot은 정상 0원 cost로 기록되어야 한다")
+    void shouldRecordZeroCostWithExplicitZeroRateSnapshot() {
+        PricingPlan freePlan = new PricingPlan(
+                "free-model",
+                BigDecimal.ZERO,
+                BigDecimal.ZERO,
+                Currency.getInstance("USD")
+        );
+        PricingSnapshot snapshot = PricingSnapshot.from(
+                freePlan,
+                PricingSnapshot.DEFAULT_CATALOG_VERSION,
+                Instant.parse("2026-07-30T00:00:00Z")
+        );
+        TokenUsage usage = TokenUsage.from(1000, 1000);
+
+        Cost cost = manager.record(snapshot, usage, Map.of());
+
+        assertThat(cost.value()).isEqualByComparingTo(BigDecimal.ZERO);
+        assertThat(cost.currency()).isEqualTo(Currency.getInstance("USD"));
+        verify(listener).onRecord(argThat(event ->
+                event.modelId().equals("free-model") &&
+                event.usage().equals(usage) &&
+                event.cost().equals(cost)
+        ));
+    }
 }
