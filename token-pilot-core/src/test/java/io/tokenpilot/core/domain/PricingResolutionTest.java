@@ -71,4 +71,11 @@ class PricingResolutionTest {
         assertThat(PricingResolution.values())
                 .noneMatch(value -> value.name().equals("RECONCILIATION_REQUIRED"));
     }
+
+    @Test
+    @DisplayName("PricingResolution은 UNPRICED 상태값을 갖지 않는다")
+    void unpricedIsNotPricingResolution() {
+        assertThat(PricingResolution.values())
+                .noneMatch(value -> value.name().equals("UNPRICED"));
+    }
 }

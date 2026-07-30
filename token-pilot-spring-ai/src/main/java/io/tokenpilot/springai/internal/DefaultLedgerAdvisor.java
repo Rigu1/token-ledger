@@ -5,6 +5,7 @@ import io.tokenpilot.budget.BudgetEvaluator;
 import io.tokenpilot.budget.BudgetStateStore;
 import io.tokenpilot.core.*;
 import io.tokenpilot.core.domain.*;
+import io.tokenpilot.core.exception.MissingPricingException;
 import io.tokenpilot.springai.LedgerAdvisor;
 import io.tokenpilot.springai.UsageExtractor;
 import org.springframework.ai.chat.client.ChatClientRequest;
@@ -37,6 +38,7 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
     private final BudgetStateStore budgetStateStore;
     private final CostCalculator costCalculator;
     private final PricingRegistry pricingRegistry;
+    private final MissingPricingPolicy missingPricingPolicy;
 
     public DefaultLedgerAdvisor(LedgerManager ledgerManager, UsageExtractor usageExtractor) {
         this(ledgerManager, usageExtractor, null, null, null, null);
@@ -45,12 +47,28 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
     public DefaultLedgerAdvisor(LedgerManager ledgerManager, UsageExtractor usageExtractor,
                                 BudgetEvaluator budgetEvaluator, BudgetStateStore budgetStateStore,
                                 CostCalculator costCalculator, PricingRegistry pricingRegistry) {
+        this(
+                ledgerManager,
+                usageExtractor,
+                budgetEvaluator,
+                budgetStateStore,
+                costCalculator,
+                pricingRegistry,
+                MissingPricingPolicy.FAIL_OPEN
+        );
+    }
+
+    public DefaultLedgerAdvisor(LedgerManager ledgerManager, UsageExtractor usageExtractor,
+                                BudgetEvaluator budgetEvaluator, BudgetStateStore budgetStateStore,
+                                CostCalculator costCalculator, PricingRegistry pricingRegistry,
+                                MissingPricingPolicy missingPricingPolicy) {
         this.ledgerManager = ledgerManager;
         this.usageExtractor = usageExtractor;
         this.budgetEvaluator = budgetEvaluator;
         this.budgetStateStore = budgetStateStore;
         this.costCalculator = costCalculator;
         this.pricingRegistry = pricingRegistry;
+        this.missingPricingPolicy = missingPricingPolicy;
     }
 
     @Override
@@ -104,6 +122,8 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
         } else if (!hasPricingResolution) {
             ledgerManager.record(modelId, usage, tags);
             recordLegacyBudgetCost(modelId, usage, response);
+        } else {
+            return withReconciliationResult(response, PricingReconciliationResult.UNPRICED);
         }
 
         return response;
@@ -151,12 +171,23 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
         PricingResolution resolution = snapshot.isPresent()
                 ? PricingResolution.RESOLVED
                 : PricingResolution.MISSING_PLAN;
+        rejectMissingPricingIfFailClosed(resolution);
 
         ChatClientRequest.Builder builder = request.mutate()
                 .context(PRICING_POLICY_ID_CONTEXT, pricingPolicyId)
                 .context(PRICING_RESOLUTION_CONTEXT, resolution);
         snapshot.ifPresent(value -> builder.context(PRICING_SNAPSHOT_CONTEXT, value));
         return builder.build();
+    }
+
+    private void rejectMissingPricingIfFailClosed(PricingResolution resolution) {
+        if (missingPricingPolicy != MissingPricingPolicy.FAIL_CLOSED) {
+            return;
+        }
+        if (resolution.isResolved()) {
+            return;
+        }
+        throw new MissingPricingException(resolution);
     }
 
     private String extractModelId(ChatClientRequest request) {

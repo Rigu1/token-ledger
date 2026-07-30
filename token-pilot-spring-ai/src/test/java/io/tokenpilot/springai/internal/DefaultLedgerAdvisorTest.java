@@ -9,6 +9,7 @@ import io.tokenpilot.budget.BudgetThreshold;
 import io.tokenpilot.budget.BudgetWindow;
 import io.tokenpilot.core.*;
 import io.tokenpilot.core.domain.*;
+import io.tokenpilot.core.exception.MissingPricingException;
 import io.tokenpilot.springai.UsageExtractor;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -26,8 +27,10 @@ import java.util.Currency;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -276,12 +279,14 @@ class DefaultLedgerAdvisorTest {
     }
 
     @Test
-    @DisplayName("AI 호출 전 pricing resolution 실패는 provider 호출 여부 판단 값으로 전달되어야 한다")
-    void exposeMissingPricingResolutionBeforeProviderCall() {
+    @DisplayName("FAIL_OPEN은 missing pricing이어도 provider 호출을 허용하고 UNPRICED로 남겨야 한다")
+    void failOpenAllowsProviderCallAndMarksMissingPricingAsUnpriced() {
         LedgerManager ledgerManager = mock(LedgerManager.class);
         UsageExtractor extractor = mock(UsageExtractor.class);
         PricingRegistry pricingRegistry = mock(PricingRegistry.class);
+        TokenUsage usage = TokenUsage.from(100, 200);
 
+        when(extractor.extract(any())).thenReturn(usage);
         when(pricingRegistry.resolveSnapshot("missing-model", PricingPlan.DEFAULT_PRICING_POLICY_ID))
                 .thenReturn(Optional.empty());
 
@@ -304,8 +309,54 @@ class DefaultLedgerAdvisorTest {
                 .isEqualTo(PricingResolution.MISSING_PLAN);
         assertThat(resolvedRequest.context()).doesNotContainKey(DefaultLedgerAdvisor.PRICING_SNAPSHOT_CONTEXT);
 
-        advisor.after(response("missing-model", resolvedRequest.context()), mock(AdvisorChain.class));
+        ChatClientResponse unpricedResponse = advisor.after(
+                response("missing-model", resolvedRequest.context()),
+                mock(AdvisorChain.class)
+        );
 
+        assertThat(unpricedResponse.context().get(DefaultLedgerAdvisor.PRICING_RECONCILIATION_RESULT_CONTEXT))
+                .isEqualTo(PricingReconciliationResult.UNPRICED);
+
+        verify(pricingRegistry, times(1)).resolveSnapshot("missing-model", PricingPlan.DEFAULT_PRICING_POLICY_ID);
+        verifyNoMoreInteractions(pricingRegistry);
+        verifyNoInteractions(ledgerManager);
+    }
+
+    @Test
+    @DisplayName("FAIL_CLOSED는 provider 호출 전에 missing pricing을 차단하고 invocation count를 0으로 유지해야 한다")
+    void failClosedBlocksMissingPricingBeforeProviderCall() {
+        LedgerManager ledgerManager = mock(LedgerManager.class);
+        UsageExtractor extractor = mock(UsageExtractor.class);
+        PricingRegistry pricingRegistry = mock(PricingRegistry.class);
+        AtomicInteger providerInvocationCount = new AtomicInteger();
+
+        when(pricingRegistry.resolveSnapshot("missing-model", PricingPlan.DEFAULT_PRICING_POLICY_ID))
+                .thenReturn(Optional.empty());
+
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(
+                ledgerManager,
+                extractor,
+                null,
+                null,
+                mock(CostCalculator.class),
+                pricingRegistry,
+                MissingPricingPolicy.FAIL_CLOSED
+        );
+        ChatClientRequest request = new ChatClientRequest(
+                new Prompt("test"),
+                Map.of(DefaultLedgerAdvisor.MODEL_ID_CONTEXT, "missing-model")
+        );
+
+        assertThatThrownBy(() -> {
+            advisor.before(request, mock(AdvisorChain.class));
+            providerInvocationCount.incrementAndGet();
+        })
+                .isInstanceOf(MissingPricingException.class)
+                .hasMessage("MISSING_PLAN")
+                .extracting(exception -> ((MissingPricingException) exception).getResolution())
+                .isEqualTo(PricingResolution.MISSING_PLAN);
+
+        assertThat(providerInvocationCount).hasValue(0);
         verify(pricingRegistry, times(1)).resolveSnapshot("missing-model", PricingPlan.DEFAULT_PRICING_POLICY_ID);
         verifyNoMoreInteractions(pricingRegistry);
         verifyNoInteractions(ledgerManager);

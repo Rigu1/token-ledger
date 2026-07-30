@@ -5,5 +5,6 @@ package io.tokenpilot.core.domain;
  */
 public enum PricingReconciliationResult {
     RECONCILED,
-    RECONCILIATION_REQUIRED
+    RECONCILIATION_REQUIRED,
+    UNPRICED
 }
