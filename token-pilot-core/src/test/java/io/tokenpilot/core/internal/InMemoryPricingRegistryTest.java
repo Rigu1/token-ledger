@@ -104,6 +104,32 @@ class InMemoryPricingRegistryTest {
     }
 
     @Test
+    @DisplayName("registry 변경 후 새 요청은 변경된 pricing plan으로 snapshot을 resolve해야 한다")
+    void shouldResolveNewSnapshotAfterRegistryChanges() {
+        String modelId = "gpt-4o-2024-08-06";
+        String pricingPolicyId = "standard";
+        registry.registerPlan(new PricingPlan(
+                modelId,
+                pricingPolicyId,
+                Map.of(TokenType.PROMPT, new BigDecimal("0.0025")),
+                Currency.getInstance("USD")
+        ));
+        PricingSnapshot firstSnapshot = registry.resolveSnapshot(modelId, pricingPolicyId).orElseThrow();
+
+        registry.registerPlan(new PricingPlan(
+                modelId,
+                pricingPolicyId,
+                Map.of(TokenType.PROMPT, new BigDecimal("0.0050")),
+                Currency.getInstance("USD")
+        ));
+
+        PricingSnapshot nextSnapshot = registry.resolveSnapshot(modelId, pricingPolicyId).orElseThrow();
+
+        assertThat(firstSnapshot.rates()).containsEntry(TokenType.PROMPT, new BigDecimal("0.0025"));
+        assertThat(nextSnapshot.rates()).containsEntry(TokenType.PROMPT, new BigDecimal("0.0050"));
+    }
+
+    @Test
     @DisplayName("등록되지 않은 모델 조회 시 빈 Optional을 반환해야 한다")
     void shouldReturnEmptyWhenNotFound() {
         // When

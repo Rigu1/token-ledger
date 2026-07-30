@@ -61,6 +61,19 @@ class DefaultLedgerManager implements LedgerManager {
         return cost;
     }
 
+    @Override
+    public Cost record(PricingSnapshot snapshot, TokenUsage usage, Map<String, String> tags) {
+        PricingPlan plan = new PricingPlan(
+                snapshot.modelId(),
+                snapshot.pricingPolicyId(),
+                snapshot.rates(),
+                snapshot.currency()
+        );
+        Cost cost = costCalculator.calculate(usage, plan);
+        publish(snapshot.modelId(), usage, cost, tags);
+        return cost;
+    }
+
     private void publish(String modelId, TokenUsage usage, Cost cost, Map<String, String> tags) {
         // 이벤트 발행 (리스너들에게 전파)
         if (!listeners.isEmpty()) {

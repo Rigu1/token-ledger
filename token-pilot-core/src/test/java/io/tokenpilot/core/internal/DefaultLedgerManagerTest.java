@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.Currency;
 import java.util.List;
 import java.util.Map;
@@ -80,6 +81,28 @@ class DefaultLedgerManagerTest {
                 event.modelId().equals("gpt-4o") &&
                 event.usage().equals(usage) &&
                 event.cost().equals(expectedCost)
+        ));
+    }
+
+    @Test
+    @DisplayName("pricing snapshot으로 기록하면 registry 변경 후에도 snapshot rate를 사용해야 한다")
+    void shouldRecordWithSnapshotRatesAfterRegistryChanges() {
+        PricingPlan originalPlan = new PricingPlan("gpt-4o", new BigDecimal("5.0"), new BigDecimal("15.0"));
+        PricingSnapshot snapshot = PricingSnapshot.from(
+                originalPlan,
+                PricingSnapshot.DEFAULT_CATALOG_VERSION,
+                Instant.parse("2026-07-30T00:00:00Z")
+        );
+        registry.registerPlan(new PricingPlan("gpt-4o", new BigDecimal("50.0"), new BigDecimal("150.0")));
+        TokenUsage usage = TokenUsage.from(1000, 1000);
+
+        Cost cost = manager.record(snapshot, usage, Map.of());
+
+        assertThat(cost.value()).isEqualByComparingTo("20.000000");
+        verify(listener).onRecord(argThat(event ->
+                event.modelId().equals("gpt-4o") &&
+                event.usage().equals(usage) &&
+                event.cost().equals(cost)
         ));
     }
 }
