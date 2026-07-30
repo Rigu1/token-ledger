@@ -56,9 +56,7 @@ class DefaultLedgerManager implements LedgerManager {
 
     @Override
     public Cost record(PricingPlan plan, TokenUsage usage, Map<String, String> tags) {
-        Cost cost = costCalculator.calculate(usage, plan);
-        publish(plan.modelId(), usage, cost, tags);
-        return cost;
+        return recordResolvedPlan(plan, usage, tags);
     }
 
     @Override
@@ -69,8 +67,12 @@ class DefaultLedgerManager implements LedgerManager {
                 snapshot.rates(),
                 snapshot.currency()
         );
+        return recordResolvedPlan(plan, usage, tags);
+    }
+
+    private Cost recordResolvedPlan(PricingPlan plan, TokenUsage usage, Map<String, String> tags) {
         Cost cost = costCalculator.calculate(usage, plan);
-        publish(snapshot.modelId(), usage, cost, tags);
+        publish(plan.modelId(), usage, cost, tags);
         return cost;
     }
 
