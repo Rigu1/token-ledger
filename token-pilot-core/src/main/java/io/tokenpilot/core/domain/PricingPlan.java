@@ -5,6 +5,7 @@ import java.util.Collections;
 import java.util.Currency;
 import java.util.EnumMap;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * 특정 모델의 가격 정책 정보.
@@ -27,7 +28,10 @@ public record PricingPlan(
             throw new IllegalArgumentException("pricingPolicyId must not be blank");
         }
 
-        rates = Collections.unmodifiableMap(new EnumMap<>(rates));
+        Objects.requireNonNull(rates, "rates must not be null");
+        Map<TokenType, BigDecimal> copiedRates = new EnumMap<>(TokenType.class);
+        copiedRates.putAll(rates);
+        rates = Collections.unmodifiableMap(copiedRates);
         if (currency == null) {
             currency = Currency.getInstance("USD");
         }

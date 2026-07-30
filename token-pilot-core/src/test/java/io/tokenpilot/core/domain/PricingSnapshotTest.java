@@ -61,4 +61,19 @@ class PricingSnapshotTest {
         assertThatThrownBy(() -> snapshot.rates().put(TokenType.COMPLETION, new BigDecimal("0.03")))
                 .isInstanceOf(UnsupportedOperationException.class);
     }
+
+    @Test
+    @DisplayName("pricing snapshot은 빈 rates를 보존할 수 있어야 한다")
+    void preserveEmptyRates() {
+        PricingSnapshot snapshot = new PricingSnapshot(
+                "gpt-4o",
+                "standard",
+                "catalog-v1",
+                Instant.parse("2026-07-30T00:00:00Z"),
+                Map.of(),
+                Currency.getInstance("USD")
+        );
+
+        assertThat(snapshot.rates()).isEmpty();
+    }
 }

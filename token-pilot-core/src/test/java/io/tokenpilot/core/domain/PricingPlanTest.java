@@ -154,4 +154,16 @@ class PricingPlanTest {
         assertThat(plan.resolveRate(TokenType.CACHE_READ_PROMPT)).isEqualTo(PricingResolution.RESOLVED);
         assertThat(plan.resolveRate(TokenType.CACHE_CREATION_PROMPT)).isEqualTo(PricingResolution.RESOLVED);
     }
+
+    @Test
+    @DisplayName("빈 rates plan은 생성 가능하고 필요한 rate를 MISSING_RATE로 표현한다")
+    void emptyRatesResolveMissingRate() {
+        PricingPlan plan = new PricingPlan(
+                "empty-rates-model",
+                Map.of(),
+                Currency.getInstance("USD")
+        );
+
+        assertThat(plan.resolveRate(TokenType.PROMPT)).isEqualTo(PricingResolution.MISSING_RATE);
+    }
 }

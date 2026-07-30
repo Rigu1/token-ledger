@@ -34,7 +34,10 @@ public record PricingSnapshot(
 
         checkedAt = Objects.requireNonNull(checkedAt, "checkedAt must not be null");
         currency = Objects.requireNonNull(currency, "currency must not be null");
-        rates = Collections.unmodifiableMap(new EnumMap<>(rates));
+        Objects.requireNonNull(rates, "rates must not be null");
+        Map<TokenType, BigDecimal> copiedRates = new EnumMap<>(TokenType.class);
+        copiedRates.putAll(rates);
+        rates = Collections.unmodifiableMap(copiedRates);
         rates.values().forEach(rate -> {
             if (rate.compareTo(BigDecimal.ZERO) < 0) {
                 throw new IllegalArgumentException("rate must not be negative");
