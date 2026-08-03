@@ -173,6 +173,48 @@ class DefaultLedgerAdvisorTest {
     }
 
     @Test
+    @DisplayName("AI 호출 전 completion rate가 없는 부분 snapshot은 MISSING_RATE여야 한다")
+    void resolvePartialPricingSnapshotAsMissingRateBeforeProviderCall() {
+        LedgerManager ledgerManager = mock(LedgerManager.class);
+        PricingRegistry pricingRegistry = mock(PricingRegistry.class);
+        PricingPlan plan = new PricingPlan(
+                "prompt-only-model",
+                Map.of(TokenType.PROMPT, new BigDecimal("0.01")),
+                Currency.getInstance("USD")
+        );
+        PricingSnapshot snapshot = PricingSnapshot.from(
+                plan,
+                PricingSnapshot.DEFAULT_CATALOG_VERSION,
+                Instant.parse("2026-07-30T00:00:00Z")
+        );
+
+        when(pricingRegistry.resolveSnapshot("prompt-only-model", PricingPlan.DEFAULT_PRICING_POLICY_ID))
+                .thenReturn(Optional.of(snapshot));
+
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(
+                ledgerManager,
+                mock(UsageExtractor.class),
+                null,
+                null,
+                mock(CostCalculator.class),
+                pricingRegistry
+        );
+        ChatClientRequest request = new ChatClientRequest(
+                new Prompt("test"),
+                Map.of(DefaultLedgerAdvisor.MODEL_ID_CONTEXT, "prompt-only-model")
+        );
+
+        ChatClientRequest resolvedRequest = advisor.before(request, mock(AdvisorChain.class));
+
+        assertThat(resolvedRequest.context().get(DefaultLedgerAdvisor.PRICING_RESOLUTION_CONTEXT))
+                .isEqualTo(PricingResolution.MISSING_RATE);
+        verify(pricingRegistry, times(1))
+                .resolveSnapshot("prompt-only-model", PricingPlan.DEFAULT_PRICING_POLICY_ID);
+        verifyNoMoreInteractions(pricingRegistry);
+        verifyNoInteractions(ledgerManager);
+    }
+
+    @Test
     @DisplayName("AI 응답 후 actual reconciliation은 registry를 다시 조회하지 않고 snapshot으로 기록해야 한다")
     void reconcileActualWithPricingSnapshot() {
         LedgerManager ledgerManager = mock(LedgerManager.class);
@@ -566,10 +608,7 @@ class DefaultLedgerAdvisorTest {
         );
         ChatClientRequest request = new ChatClientRequest(
                 new Prompt("test"),
-                Map.of(
-                        DefaultLedgerAdvisor.MODEL_ID_CONTEXT, "prompt-only-model",
-                        DefaultLedgerAdvisor.REQUIRED_TOKEN_TYPE_CONTEXT, TokenType.COMPLETION
-                )
+                Map.of(DefaultLedgerAdvisor.MODEL_ID_CONTEXT, "prompt-only-model")
         );
 
         assertThatThrownBy(() -> {

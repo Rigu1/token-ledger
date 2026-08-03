@@ -32,7 +32,6 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
     static final String PRICING_SNAPSHOT_CONTEXT = "tokenpilot.pricing.snapshot";
     static final String PRICING_RESOLUTION_CONTEXT = "tokenpilot.pricing.resolution";
     static final String PRICING_RECONCILIATION_RESULT_CONTEXT = "tokenpilot.pricing.reconciliation.result";
-    static final String REQUIRED_TOKEN_TYPE_CONTEXT = "tokenpilot.pricing.required.token.type";
 
     private final LedgerManager ledgerManager;
     private final UsageExtractor usageExtractor;
@@ -180,26 +179,34 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
 
         String pricingPolicyId = extractPricingPolicyId(request);
         Optional<PricingSnapshot> snapshot = pricingRegistry.resolveSnapshot(modelId, pricingPolicyId);
-        PricingResolution resolution = resolvePricingResolution(request, snapshot);
+        PricingResolution resolution = resolvePricingResolution(snapshot);
         rejectMissingPricingIfFailClosed(resolution);
 
         return withPricingContext(request, pricingPolicyId, resolution, snapshot);
     }
 
-    private PricingResolution resolvePricingResolution(
-            ChatClientRequest request,
-            Optional<PricingSnapshot> snapshot
-    ) {
+    private PricingResolution resolvePricingResolution(Optional<PricingSnapshot> snapshot) {
         if (snapshot.isEmpty()) {
             return PricingResolution.MISSING_PLAN;
         }
 
-        Optional<TokenType> requiredTokenType = extractRequiredTokenType(request);
-        if (requiredTokenType.isEmpty()) {
-            return PricingResolution.RESOLVED;
+        return resolveRequiredRates(snapshot.get());
+    }
+
+    private PricingResolution resolveRequiredRates(PricingSnapshot snapshot) {
+        PricingPlan plan = new PricingPlan(
+                snapshot.modelId(),
+                snapshot.pricingPolicyId(),
+                snapshot.rates(),
+                snapshot.currency()
+        );
+
+        PricingResolution promptResolution = plan.resolveRate(TokenType.PROMPT);
+        if (!promptResolution.isResolved()) {
+            return promptResolution;
         }
 
-        return resolveSnapshotRate(snapshot.get(), requiredTokenType.get());
+        return plan.resolveRate(TokenType.COMPLETION);
     }
 
     private ChatClientRequest withPricingContext(
@@ -215,16 +222,6 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
             snapshot.ifPresent(value -> builder.context(PRICING_SNAPSHOT_CONTEXT, value));
         }
         return builder.build();
-    }
-
-    private PricingResolution resolveSnapshotRate(PricingSnapshot snapshot, TokenType tokenType) {
-        PricingPlan plan = new PricingPlan(
-                snapshot.modelId(),
-                snapshot.pricingPolicyId(),
-                snapshot.rates(),
-                snapshot.currency()
-        );
-        return plan.resolveRate(tokenType);
     }
 
     private void rejectMissingPricingIfFailClosed(PricingResolution resolution) {
@@ -283,14 +280,6 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
         return PricingPlan.DEFAULT_PRICING_POLICY_ID;
     }
 
-    private Optional<TokenType> extractRequiredTokenType(ChatClientRequest request) {
-        Object value = request.context().get(REQUIRED_TOKEN_TYPE_CONTEXT);
-        if (value instanceof TokenType tokenType) {
-            return Optional.of(tokenType);
-        }
-        return Optional.empty();
-    }
-
     private Optional<PricingSnapshot> extractPricingSnapshot(ChatClientResponse response) {
         Map<String, Object> context = response.context();
         Object value = null;
@@ -335,11 +324,11 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
             return tags;
         }
 
-        context.forEach((k, v) -> {
-            if (v instanceof String s) {
-                tags.put(k, s);
+        for (Map.Entry<String, Object> contextEntry : context.entrySet()) {
+            if (contextEntry.getValue() instanceof String tagValue) {
+                tags.put(contextEntry.getKey(), tagValue);
             }
-        });
+        }
         return tags;
     }
 }
