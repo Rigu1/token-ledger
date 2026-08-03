@@ -109,7 +109,12 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
                 return withReconciliationResult(response, PricingReconciliationResult.RECONCILIATION_REQUIRED);
             }
 
-            Cost cost = ledgerManager.record(snapshot.get(), usage, tags);
+            Cost cost;
+            try {
+                cost = ledgerManager.record(snapshot.get(), usage, tags);
+            } catch (MissingPricingException exception) {
+                return handleActualPricingFailure(response, exception);
+            }
             ChatClientResponse reconciledResponse = withReconciliationResult(
                     response,
                     PricingReconciliationResult.RECONCILED
@@ -131,6 +136,23 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
         }
 
         return response;
+    }
+
+    private ChatClientResponse handleActualPricingFailure(
+            ChatClientResponse response,
+            MissingPricingException exception
+    ) {
+        if (missingPricingPolicy == MissingPricingPolicy.FAIL_CLOSED) {
+            throw exception;
+        }
+
+        Map<String, Object> context = new HashMap<>();
+        if (response.context() != null) {
+            context.putAll(response.context());
+        }
+        context.put(PRICING_RESOLUTION_CONTEXT, exception.getResolution());
+        context.put(PRICING_RECONCILIATION_RESULT_CONTEXT, PricingReconciliationResult.UNPRICED);
+        return new ChatClientResponse(response.chatResponse(), context);
     }
 
     private ChatClientResponse withReconciliationResult(

@@ -10,6 +10,7 @@ import io.tokenpilot.budget.BudgetWindow;
 import io.tokenpilot.core.*;
 import io.tokenpilot.core.domain.*;
 import io.tokenpilot.core.exception.MissingPricingException;
+import io.tokenpilot.core.internal.LedgerComponents;
 import io.tokenpilot.springai.UsageExtractor;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -266,6 +267,96 @@ class DefaultLedgerAdvisorTest {
         verifyNoMoreInteractions(pricingRegistry);
         verify(ledgerManager, times(1)).record(same(snapshot), same(usage), anyMap());
         verify(ledgerManager, never()).record(eq("gpt-4o"), same(usage), anyMap());
+    }
+
+    @Test
+    @DisplayName("actual usage에 필요한 rate가 없으면 UNPRICED로 남기고 비용을 기록하지 않아야 한다")
+    void leaveActualUsageUnpricedWhenRequiredRateIsMissing() {
+        UsageExtractor extractor = mock(UsageExtractor.class);
+        LedgerListener listener = mock(LedgerListener.class);
+        CostCalculator costCalculator = LedgerComponents.defaultCostCalculator();
+        LedgerManager ledgerManager = LedgerComponents.defaultLedgerManager(
+                mock(PricingRegistry.class),
+                costCalculator,
+                List.of(listener)
+        );
+        TokenUsage usage = TokenUsage.from(1_000, 1_000);
+        PricingPlan plan = new PricingPlan(
+                "prompt-only-model",
+                Map.of(TokenType.PROMPT, new BigDecimal("0.01")),
+                Currency.getInstance("USD")
+        );
+        PricingSnapshot snapshot = PricingSnapshot.from(
+                plan,
+                PricingSnapshot.DEFAULT_CATALOG_VERSION,
+                Instant.parse("2026-07-30T00:00:00Z")
+        );
+
+        when(extractor.extract(any())).thenReturn(usage);
+
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(ledgerManager, extractor);
+        ChatClientResponse response = response(
+                "prompt-only-model",
+                Map.of(
+                        DefaultLedgerAdvisor.PRICING_SNAPSHOT_CONTEXT, snapshot,
+                        DefaultLedgerAdvisor.PRICING_RESOLUTION_CONTEXT, PricingResolution.RESOLVED
+                )
+        );
+
+        ChatClientResponse unpricedResponse = advisor.after(response, mock(AdvisorChain.class));
+
+        assertThat(unpricedResponse.context().get(DefaultLedgerAdvisor.PRICING_RESOLUTION_CONTEXT))
+                .isEqualTo(PricingResolution.MISSING_RATE);
+        assertThat(unpricedResponse.context().get(DefaultLedgerAdvisor.PRICING_RECONCILIATION_RESULT_CONTEXT))
+                .isEqualTo(PricingReconciliationResult.UNPRICED);
+        verifyNoInteractions(listener);
+    }
+
+    @Test
+    @DisplayName("FAIL_CLOSED에서 actual usage의 rate가 없으면 reconciliation을 실패시켜야 한다")
+    void failActualReconciliationWhenRequiredRateIsMissingAndPolicyIsFailClosed() {
+        LedgerManager ledgerManager = mock(LedgerManager.class);
+        UsageExtractor extractor = mock(UsageExtractor.class);
+        BudgetStateStore budgetStateStore = mock(BudgetStateStore.class);
+        TokenUsage usage = TokenUsage.from(1_000, 1_000);
+        PricingPlan plan = new PricingPlan(
+                "prompt-only-model",
+                Map.of(TokenType.PROMPT, new BigDecimal("0.01")),
+                Currency.getInstance("USD")
+        );
+        PricingSnapshot snapshot = PricingSnapshot.from(
+                plan,
+                PricingSnapshot.DEFAULT_CATALOG_VERSION,
+                Instant.parse("2026-07-30T00:00:00Z")
+        );
+
+        when(extractor.extract(any())).thenReturn(usage);
+        when(ledgerManager.record(same(snapshot), same(usage), anyMap()))
+                .thenThrow(new MissingPricingException(PricingResolution.MISSING_RATE));
+
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(
+                ledgerManager,
+                extractor,
+                null,
+                budgetStateStore,
+                mock(CostCalculator.class),
+                null,
+                MissingPricingPolicy.FAIL_CLOSED
+        );
+        ChatClientResponse response = response(
+                "prompt-only-model",
+                Map.of(
+                        DefaultLedgerAdvisor.PRICING_SNAPSHOT_CONTEXT, snapshot,
+                        DefaultLedgerAdvisor.PRICING_RESOLUTION_CONTEXT, PricingResolution.RESOLVED
+                )
+        );
+
+        assertThatThrownBy(() -> advisor.after(response, mock(AdvisorChain.class)))
+                .isInstanceOf(MissingPricingException.class)
+                .extracting(exception -> ((MissingPricingException) exception).getResolution())
+                .isEqualTo(PricingResolution.MISSING_RATE);
+
+        verifyNoInteractions(budgetStateStore);
     }
 
     @Test
