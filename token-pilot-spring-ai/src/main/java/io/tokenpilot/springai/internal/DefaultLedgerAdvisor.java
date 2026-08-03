@@ -16,6 +16,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import org.springframework.ai.chat.prompt.ChatOptions;
 
 /**
  * 기본 {@link LedgerAdvisor} 구현체.
@@ -257,11 +258,22 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
     }
 
     private String extractModelId(ChatClientRequest request) {
-        Object value = request.context().get(MODEL_ID_CONTEXT);
-        if (value instanceof String modelId && !modelId.isBlank()) {
+        Object contextValue = request.context().get(MODEL_ID_CONTEXT);
+        if (contextValue instanceof String modelId && !modelId.isBlank()) {
             return modelId;
         }
-        return null;
+
+        ChatOptions options = request.prompt().getOptions();
+        if (options == null) {
+            return null;
+        }
+
+        String modelId = options.getModel();
+        if (modelId == null || modelId.isBlank()) {
+            return null;
+        }
+
+        return modelId;
     }
 
     private String extractModelId(ChatClientResponse response) {

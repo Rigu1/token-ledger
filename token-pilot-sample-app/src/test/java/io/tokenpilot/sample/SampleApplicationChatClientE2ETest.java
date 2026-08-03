@@ -1,15 +1,26 @@
 package io.tokenpilot.sample;
 
+import io.tokenpilot.budget.BudgetDecision;
+import io.tokenpilot.budget.BudgetStateStore;
+import io.tokenpilot.core.domain.Cost;
+import io.tokenpilot.core.domain.PricingPlan;
+import io.tokenpilot.core.domain.PricingReconciliationResult;
+import io.tokenpilot.core.domain.PricingResolution;
+import io.tokenpilot.core.domain.PricingSnapshot;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ChatClientBuilderCustomizer;
+import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.metadata.DefaultUsage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
+import org.springframework.ai.chat.prompt.ChatOptions;
+import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -22,6 +33,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.Currency;
 import java.util.List;
 import java.util.Map;
 
@@ -37,6 +49,10 @@ import static org.assertj.core.api.Assertions.assertThat;
                 "token-pilot.pricing.plans[0].rates.COMPLETION=0.00060",
                 "token-pilot.metrics.enabled=true",
                 "token-pilot.metrics.tag-whitelist[0]=tenant_id",
+                "token-pilot.budget.enabled=true",
+                "token-pilot.budget.monthly-limit=10.00",
+                "token-pilot.budget.currency=USD",
+                "token-pilot.budget.target-tag-key=tenant_id",
                 "management.endpoints.web.exposure.include=prometheus,health"
         }
 )
@@ -46,6 +62,12 @@ class SampleApplicationChatClientE2ETest {
 
     @LocalServerPort
     private int port;
+
+    @Autowired
+    private ChatClient.Builder chatClientBuilder;
+
+    @Autowired
+    private BudgetStateStore budgetStateStore;
 
     @Test
     void chatClientAdvisorRecordsTokenPilotMetricsEndToEnd() throws Exception {
@@ -71,6 +93,45 @@ class SampleApplicationChatClientE2ETest {
                 .doesNotContain("user_id=\"chat-sample-user\"");
     }
 
+    @Test
+    void budgetAdvisorResolvesModelAndPolicyFromRegularChatClientCall() {
+        ChatClientResponse response = chatClientBuilder.clone()
+                .build()
+                .prompt()
+                .user("Record this fake budget-aware Spring AI call.")
+                .advisors(advisors -> advisors.param("tenant_id", "budget-chat-tenant"))
+                .call()
+                .chatClientResponse();
+
+        PricingSnapshot snapshot = contextValue(response, PricingSnapshot.class);
+        PricingResolution resolution = contextValue(response, PricingResolution.class);
+        PricingReconciliationResult reconciliationResult = contextValue(
+                response,
+                PricingReconciliationResult.class
+        );
+        BudgetDecision budgetDecision = contextValue(response, BudgetDecision.class);
+        Cost accumulatedCost = budgetStateStore.getAccumulatedCost(
+                budgetDecision.key(),
+                budgetDecision.limit()
+        );
+
+        assertThat(snapshot.modelId()).isEqualTo("fake-chat-model");
+        assertThat(snapshot.pricingPolicyId()).isEqualTo(PricingPlan.DEFAULT_PRICING_POLICY_ID);
+        assertThat(snapshot.currency()).isEqualTo(Currency.getInstance("USD"));
+        assertThat(resolution).isEqualTo(PricingResolution.RESOLVED);
+        assertThat(reconciliationResult).isEqualTo(PricingReconciliationResult.RECONCILED);
+        assertThat(accumulatedCost.value()).isEqualByComparingTo("0.00135");
+        assertThat(accumulatedCost.currency()).isEqualTo(Currency.getInstance("USD"));
+    }
+
+    private <T> T contextValue(ChatClientResponse response, Class<T> type) {
+        return response.context().values().stream()
+                .filter(type::isInstance)
+                .map(type::cast)
+                .findFirst()
+                .orElseThrow();
+    }
+
     private HttpResponse<String> get(String path) throws IOException, InterruptedException {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:" + port + path))
@@ -84,13 +145,25 @@ class SampleApplicationChatClientE2ETest {
 
         @Bean
         ChatModel fakeChatModel() {
-            return prompt -> new ChatResponse(
-                    List.of(new Generation(new AssistantMessage("fake chat response"))),
-                    ChatResponseMetadata.builder()
+            return new ChatModel() {
+                @Override
+                public ChatResponse call(Prompt prompt) {
+                    return new ChatResponse(
+                            List.of(new Generation(new AssistantMessage("fake chat response"))),
+                            ChatResponseMetadata.builder()
+                                    .model("fake-chat-model")
+                                    .usage(new DefaultUsage(1_000, 2_000))
+                                    .build()
+                    );
+                }
+
+                @Override
+                public ChatOptions getOptions() {
+                    return ChatOptions.builder()
                             .model("fake-chat-model")
-                            .usage(new DefaultUsage(1_000, 2_000))
-                            .build()
-            );
+                            .build();
+                }
+            };
         }
 
         @Bean

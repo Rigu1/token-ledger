@@ -33,6 +33,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.advisor.api.AdvisorChain;
+import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -85,6 +86,54 @@ class TokenPilotAutoConfigurationTest {
             assertThat(context).doesNotHaveBean(NotificationStateStore.class);
             assertThat(context).doesNotHaveBean(BudgetNotificationService.class);
         });
+    }
+
+    @Test
+    @DisplayName("Ledger-only advisor는 Prompt model과 기본 policy로 pricing snapshot을 resolve해야 한다")
+    void shouldResolvePricingSnapshotInLedgerOnlyAdvisor() {
+        this.contextRunner
+            .withPropertyValues(
+                "token-pilot.budget.enabled=false",
+                PROP_MODEL_ID + "=gpt-4o",
+                PROP_PROMPT + "=0.005",
+                PROP_COMPLETION + "=0.015",
+                PROP_CURRENCY + "=USD"
+            )
+            .run(context -> {
+                LedgerAdvisor advisor = context.getBean(LedgerAdvisor.class);
+                ChatClientRequest request = new ChatClientRequest(
+                    new Prompt(
+                        "test",
+                        ChatOptions.builder().model("gpt-4o").build()
+                    ),
+                    Map.of()
+                );
+
+                ChatClientRequest resolvedRequest = advisor.before(
+                    request,
+                    mock(AdvisorChain.class)
+                );
+                Optional<PricingSnapshot> snapshot = resolvedRequest.context()
+                    .values()
+                    .stream()
+                    .filter(PricingSnapshot.class::isInstance)
+                    .map(PricingSnapshot.class::cast)
+                    .findFirst();
+
+                assertThat(resolvedRequest.context().values())
+                    .contains(PricingResolution.RESOLVED);
+                assertThat(snapshot)
+                    .isPresent()
+                    .get()
+                    .satisfies(resolvedSnapshot -> {
+                        assertThat(resolvedSnapshot.modelId())
+                            .isEqualTo("gpt-4o");
+                        assertThat(resolvedSnapshot.pricingPolicyId())
+                            .isEqualTo(PricingPlan.DEFAULT_PRICING_POLICY_ID);
+                        assertThat(resolvedSnapshot.currency())
+                            .isEqualTo(Currency.getInstance("USD"));
+                    });
+            });
     }
 
     @Test

@@ -20,6 +20,7 @@ import org.springframework.ai.chat.client.advisor.api.AdvisorChain;
 import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
+import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
 
 import java.math.BigDecimal;
@@ -169,6 +170,54 @@ class DefaultLedgerAdvisorTest {
                 });
 
         verify(pricingRegistry, times(1)).resolveSnapshot("gpt-4o", "standard");
+        verifyNoMoreInteractions(pricingRegistry);
+        verifyNoInteractions(ledgerManager);
+    }
+
+    @Test
+    @DisplayName("Prompt options의 model과 기본 pricing policy로 snapshot을 resolve해야 한다")
+    void resolvePricingSnapshotFromPromptOptions() {
+        LedgerManager ledgerManager = mock(LedgerManager.class);
+        PricingRegistry pricingRegistry = mock(PricingRegistry.class);
+        PricingPlan plan = new PricingPlan(
+                "gpt-4o",
+                new BigDecimal("0.01"),
+                new BigDecimal("0.03"),
+                Currency.getInstance("USD")
+        );
+        PricingSnapshot snapshot = PricingSnapshot.from(
+                plan,
+                PricingSnapshot.DEFAULT_CATALOG_VERSION,
+                Instant.parse("2026-07-30T00:00:00Z")
+        );
+
+        when(pricingRegistry.resolveSnapshot("gpt-4o", PricingPlan.DEFAULT_PRICING_POLICY_ID))
+                .thenReturn(Optional.of(snapshot));
+
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(
+                ledgerManager,
+                mock(UsageExtractor.class),
+                null,
+                null,
+                mock(CostCalculator.class),
+                pricingRegistry
+        );
+        ChatClientRequest request = new ChatClientRequest(
+                new Prompt(
+                        "test",
+                        ChatOptions.builder().model("gpt-4o").build()
+                ),
+                Map.of()
+        );
+
+        ChatClientRequest resolvedRequest = advisor.before(request, mock(AdvisorChain.class));
+
+        assertThat(resolvedRequest.context().get(DefaultLedgerAdvisor.PRICING_RESOLUTION_CONTEXT))
+                .isEqualTo(PricingResolution.RESOLVED);
+        assertThat(resolvedRequest.context().get(DefaultLedgerAdvisor.PRICING_SNAPSHOT_CONTEXT))
+                .isSameAs(snapshot);
+        verify(pricingRegistry, times(1))
+                .resolveSnapshot("gpt-4o", PricingPlan.DEFAULT_PRICING_POLICY_ID);
         verifyNoMoreInteractions(pricingRegistry);
         verifyNoInteractions(ledgerManager);
     }

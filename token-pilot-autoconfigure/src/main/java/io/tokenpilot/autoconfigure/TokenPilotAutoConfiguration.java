@@ -126,7 +126,12 @@ public class TokenPilotAutoConfiguration {
             );
         }
 
-        return LedgerSpringAiComponents.defaultLedgerAdvisor(ledgerManager, usageExtractor);
+        return LedgerSpringAiComponents.defaultLedgerAdvisor(
+                ledgerManager,
+                usageExtractor,
+                costCalculator,
+                pricingRegistry
+        );
     }
 
     /**

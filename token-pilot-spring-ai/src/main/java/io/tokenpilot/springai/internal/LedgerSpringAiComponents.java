@@ -31,6 +31,23 @@ public final class LedgerSpringAiComponents {
     public static LedgerAdvisor defaultLedgerAdvisor(
             LedgerManager ledgerManager,
             UsageExtractor usageExtractor,
+            CostCalculator costCalculator,
+            PricingRegistry pricingRegistry
+    ) {
+        return new DefaultLedgerAdvisor(
+                ledgerManager,
+                usageExtractor,
+                null,
+                null,
+                costCalculator,
+                pricingRegistry,
+                MissingPricingPolicy.FAIL_OPEN
+        );
+    }
+
+    public static LedgerAdvisor defaultLedgerAdvisor(
+            LedgerManager ledgerManager,
+            UsageExtractor usageExtractor,
             BudgetEvaluator budgetEvaluator,
             BudgetStateStore budgetStateStore,
             CostCalculator costCalculator,
