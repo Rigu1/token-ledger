@@ -12,6 +12,7 @@ import io.tokenpilot.springai.UsageExtractor;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.api.AdvisorChain;
+import org.springframework.ai.chat.model.ChatResponse;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -121,7 +122,7 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
     @Override
     public ChatClientResponse after(ChatClientResponse response, AdvisorChain chain) {
         TokenUsage usage = usageExtractor.extract(response);
-        
+
         String modelId = extractModelId(response);
         String responseModelId = extractResponseModelId(response);
         Map<String, String> tags = extractTags(response);
@@ -175,10 +176,7 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
             throw exception;
         }
 
-        Map<String, Object> context = new HashMap<>();
-        if (response.context() != null) {
-            context.putAll(response.context());
-        }
+        Map<String, Object> context = copyContext(response);
         context.put(PRICING_RESOLUTION_CONTEXT, exception.getResolution());
         context.put(PRICING_RECONCILIATION_RESULT_CONTEXT, PricingReconciliationResult.UNPRICED);
         return new ChatClientResponse(response.chatResponse(), context);
@@ -188,10 +186,7 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
             ChatClientResponse response,
             PricingReconciliationResult result
     ) {
-        Map<String, Object> context = new HashMap<>();
-        if (response.context() != null) {
-            context.putAll(response.context());
-        }
+        Map<String, Object> context = copyContext(response);
         context.put(PRICING_RECONCILIATION_RESULT_CONTEXT, result);
         return new ChatClientResponse(response.chatResponse(), context);
     }
@@ -272,33 +267,40 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
     }
 
     private String extractModelId(ChatClientResponse response) {
-        Map<String, Object> context = response.context();
-        Object value = null;
-        if (context != null) {
-            value = context.get(MODEL_ID_CONTEXT);
-        }
-
+        Object value = contextValue(response, MODEL_ID_CONTEXT);
         if (value instanceof String modelId && !modelId.isBlank()) {
             return modelId;
         }
 
-        if (response.chatResponse() != null && response.chatResponse().getMetadata() != null) {
-            String model = response.chatResponse().getMetadata().getModel();
-            if (model != null && !model.isBlank()) {
-                return model;
-            }
+        String metadataModelId = extractMetadataModelId(response);
+        if (metadataModelId != null) {
+            return metadataModelId;
         }
         return "unknown-model";
     }
 
     private String extractResponseModelId(ChatClientResponse response) {
-        if (response.chatResponse() != null && response.chatResponse().getMetadata() != null) {
-            String model = response.chatResponse().getMetadata().getModel();
-            if (model != null && !model.isBlank()) {
-                return model;
-            }
+        String metadataModelId = extractMetadataModelId(response);
+        if (metadataModelId != null) {
+            return metadataModelId;
         }
         return extractModelId(response);
+    }
+
+    private String extractMetadataModelId(ChatClientResponse response) {
+        ChatResponse chatResponse = response.chatResponse();
+        if (chatResponse == null || chatResponse.getMetadata() == null) {
+            return null;
+        }
+
+        String modelId = chatResponse.getMetadata()
+                                     .getModel();
+
+        if (modelId == null || modelId.isBlank()) {
+            return null;
+        }
+
+        return modelId;
     }
 
     private String extractPricingPolicyId(ChatClientRequest request) {
@@ -310,12 +312,7 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
     }
 
     private Optional<PricingSnapshot> extractPricingSnapshot(ChatClientResponse response) {
-        Map<String, Object> context = response.context();
-        Object value = null;
-        if (context != null) {
-            value = context.get(PRICING_SNAPSHOT_CONTEXT);
-        }
-
+        Object value = contextValue(response, PRICING_SNAPSHOT_CONTEXT);
         if (value instanceof PricingSnapshot snapshot) {
             return Optional.of(snapshot);
         }
@@ -323,11 +320,7 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
     }
 
     private boolean hasPricingResolution(ChatClientResponse response) {
-        Map<String, Object> context = response.context();
-        if (context == null) {
-            return false;
-        }
-        return context.get(PRICING_RESOLUTION_CONTEXT) instanceof PricingResolution;
+        return contextValue(response, PRICING_RESOLUTION_CONTEXT) instanceof PricingResolution;
     }
 
     private Map<String, String> extractTags(ChatClientResponse response) {
@@ -335,12 +328,7 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
     }
 
     private BudgetDecision extractBudgetDecision(ChatClientResponse response) {
-        Map<String, Object> context = response.context();
-        Object value = null;
-        if (context != null) {
-            value = context.get(BUDGET_DECISION_CONTEXT);
-        }
-
+        Object value = contextValue(response, BUDGET_DECISION_CONTEXT);
         if (value instanceof BudgetDecision decision) {
             return decision;
         }
@@ -359,5 +347,21 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
             }
         }
         return tags;
+    }
+
+    private Object contextValue(ChatClientResponse response, String key) {
+        Map<String, Object> context = response.context();
+        if (context == null) {
+            return null;
+        }
+        return context.get(key);
+    }
+
+    private Map<String, Object> copyContext(ChatClientResponse response) {
+        Map<String, Object> context = response.context();
+        if (context == null) {
+            return new HashMap<>();
+        }
+        return new HashMap<>(context);
     }
 }
