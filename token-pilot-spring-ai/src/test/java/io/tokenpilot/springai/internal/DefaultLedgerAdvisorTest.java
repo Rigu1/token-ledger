@@ -175,6 +175,53 @@ class DefaultLedgerAdvisorTest {
     }
 
     @Test
+    @DisplayName("pricing snapshot rate 검증은 Core PricingEvaluator에 위임해야 한다")
+    void delegateSnapshotRateValidationToPricingEvaluator() {
+        LedgerManager ledgerManager = mock(LedgerManager.class);
+        PricingRegistry pricingRegistry = mock(PricingRegistry.class);
+        PricingEvaluator pricingEvaluator = mock(PricingEvaluator.class);
+        PricingSnapshot snapshot = PricingSnapshot.from(
+                new PricingPlan(
+                        "gpt-4o",
+                        new BigDecimal("0.01"),
+                        new BigDecimal("0.03"),
+                        Currency.getInstance("USD")
+                ),
+                PricingSnapshot.DEFAULT_CATALOG_VERSION,
+                Instant.parse("2026-07-30T00:00:00Z")
+        );
+
+        when(pricingRegistry.resolveSnapshot("gpt-4o", PricingPlan.DEFAULT_PRICING_POLICY_ID))
+                .thenReturn(Optional.of(snapshot));
+        when(pricingEvaluator.validateSnapshotRates(any())).thenReturn(PricingResolution.MISSING_RATE);
+
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(
+                ledgerManager,
+                mock(UsageExtractor.class),
+                null,
+                null,
+                mock(CostCalculator.class),
+                pricingRegistry,
+                pricingEvaluator,
+                MissingPricingPolicy.FAIL_OPEN
+        );
+        ChatClientRequest request = new ChatClientRequest(
+                new Prompt("test"),
+                Map.of(DefaultLedgerAdvisor.MODEL_ID_CONTEXT, "gpt-4o")
+        );
+
+        ChatClientRequest resolvedRequest = advisor.before(request, mock(AdvisorChain.class));
+
+        assertThat(resolvedRequest.context().get(DefaultLedgerAdvisor.PRICING_RESOLUTION_CONTEXT))
+                .isEqualTo(PricingResolution.MISSING_RATE);
+        assertThat(resolvedRequest.context()).doesNotContainKey(DefaultLedgerAdvisor.PRICING_SNAPSHOT_CONTEXT);
+        verify(pricingEvaluator).validateSnapshotRates(
+                argThat(candidate -> candidate.isPresent() && candidate.get() == snapshot)
+        );
+        verifyNoInteractions(ledgerManager);
+    }
+
+    @Test
     @DisplayName("Prompt options의 model과 기본 pricing policy로 snapshot을 resolve해야 한다")
     void resolvePricingSnapshotFromPromptOptions() {
         LedgerManager ledgerManager = mock(LedgerManager.class);
@@ -515,6 +562,55 @@ class DefaultLedgerAdvisorTest {
                 .isEqualTo(PricingReconciliationResult.RECONCILIATION_REQUIRED);
         verify(pricingRegistry, times(1)).resolveSnapshot("gpt-4o-mini", "standard");
         verifyNoMoreInteractions(pricingRegistry);
+        verifyNoInteractions(ledgerManager);
+    }
+
+    @Test
+    @DisplayName("actual model reconciliation 판단은 Core PricingEvaluator에 위임해야 한다")
+    void delegateReconciliationDecisionToPricingEvaluator() {
+        LedgerManager ledgerManager = mock(LedgerManager.class);
+        UsageExtractor extractor = mock(UsageExtractor.class);
+        PricingEvaluator pricingEvaluator = mock(PricingEvaluator.class);
+        PricingSnapshot snapshot = PricingSnapshot.from(
+                new PricingPlan(
+                        "gpt-4o-mini",
+                        new BigDecimal("0.01"),
+                        new BigDecimal("0.03"),
+                        Currency.getInstance("USD")
+                ),
+                PricingSnapshot.DEFAULT_CATALOG_VERSION,
+                Instant.parse("2026-07-30T00:00:00Z")
+        );
+
+        when(extractor.extract(any())).thenReturn(TokenUsage.from(100, 200));
+        when(pricingEvaluator.determineReconciliation(Optional.of(snapshot), "gpt-4o"))
+                .thenReturn(PricingReconciliationResult.RECONCILIATION_REQUIRED);
+
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(
+                ledgerManager,
+                extractor,
+                null,
+                null,
+                mock(CostCalculator.class),
+                null,
+                pricingEvaluator,
+                MissingPricingPolicy.FAIL_OPEN
+        );
+
+        ChatClientResponse result = advisor.after(
+                response(
+                        "gpt-4o",
+                        Map.of(
+                                DefaultLedgerAdvisor.PRICING_SNAPSHOT_CONTEXT, snapshot,
+                                DefaultLedgerAdvisor.PRICING_RESOLUTION_CONTEXT, PricingResolution.RESOLVED
+                        )
+                ),
+                mock(AdvisorChain.class)
+        );
+
+        assertThat(result.context().get(DefaultLedgerAdvisor.PRICING_RECONCILIATION_RESULT_CONTEXT))
+                .isEqualTo(PricingReconciliationResult.RECONCILIATION_REQUIRED);
+        verify(pricingEvaluator).determineReconciliation(Optional.of(snapshot), "gpt-4o");
         verifyNoInteractions(ledgerManager);
     }
 

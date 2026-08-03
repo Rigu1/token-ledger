@@ -11,10 +11,12 @@ import io.tokenpilot.budget.BudgetThreshold;
 import io.tokenpilot.budget.BudgetWindow;
 import io.tokenpilot.core.CostCalculator;
 import io.tokenpilot.core.LedgerManager;
+import io.tokenpilot.core.PricingEvaluator;
 import io.tokenpilot.core.PricingProvider;
 import io.tokenpilot.core.PricingRegistry;
 import io.tokenpilot.core.domain.Cost;
 import io.tokenpilot.core.domain.PricingPlan;
+import io.tokenpilot.core.domain.PricingReconciliationResult;
 import io.tokenpilot.core.domain.PricingResolution;
 import io.tokenpilot.core.domain.PricingSnapshot;
 import io.tokenpilot.core.domain.TokenType;
@@ -75,6 +77,7 @@ class TokenPilotAutoConfigurationTest {
             assertThat(context).hasSingleBean(PricingProvider.class);
             assertThat(context).hasSingleBean(PricingRegistry.class);
             assertThat(context).hasSingleBean(CostCalculator.class);
+            assertThat(context).hasSingleBean(PricingEvaluator.class);
             assertThat(context).hasSingleBean(LedgerManager.class);
 
             assertThat(context).hasSingleBean(UsageExtractor.class);
@@ -389,6 +392,9 @@ class TokenPilotAutoConfigurationTest {
                 assertThat(context).hasSingleBean(PricingRegistry.class);
                 assertThat(context.getBean(PricingRegistry.class))
                     .isInstanceOf(UserCustomPricingRegistry.class);
+                assertThat(context).hasSingleBean(PricingEvaluator.class);
+                assertThat(context.getBean(PricingEvaluator.class))
+                    .isInstanceOf(UserCustomPricingEvaluator.class);
             });
     }
 
@@ -459,6 +465,26 @@ class TokenPilotAutoConfigurationTest {
         @Bean
         public PricingRegistry pricingRegistry() {
             return new UserCustomPricingRegistry();
+        }
+
+        @Bean
+        public PricingEvaluator pricingEvaluator() {
+            return new UserCustomPricingEvaluator();
+        }
+    }
+
+    static class UserCustomPricingEvaluator implements PricingEvaluator {
+        @Override
+        public PricingResolution validateSnapshotRates(Optional<PricingSnapshot> snapshot) {
+            return PricingResolution.MISSING_PLAN;
+        }
+
+        @Override
+        public PricingReconciliationResult determineReconciliation(
+            Optional<PricingSnapshot> snapshot,
+            String actualModelId
+        ) {
+            return PricingReconciliationResult.RECONCILIATION_REQUIRED;
         }
     }
 

@@ -6,6 +6,7 @@ import io.tokenpilot.budget.BudgetStateStore;
 import io.tokenpilot.core.*;
 import io.tokenpilot.core.domain.*;
 import io.tokenpilot.core.exception.MissingPricingException;
+import io.tokenpilot.core.internal.LedgerComponents;
 import io.tokenpilot.springai.LedgerAdvisor;
 import io.tokenpilot.springai.UsageExtractor;
 import org.springframework.ai.chat.client.ChatClientRequest;
@@ -40,6 +41,7 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
     private final BudgetStateStore budgetStateStore;
     private final CostCalculator costCalculator;
     private final PricingRegistry pricingRegistry;
+    private final PricingEvaluator pricingEvaluator;
     private final MissingPricingPolicy missingPricingPolicy;
 
     public DefaultLedgerAdvisor(LedgerManager ledgerManager, UsageExtractor usageExtractor) {
@@ -64,12 +66,33 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
                                 BudgetEvaluator budgetEvaluator, BudgetStateStore budgetStateStore,
                                 CostCalculator costCalculator, PricingRegistry pricingRegistry,
                                 MissingPricingPolicy missingPricingPolicy) {
+        this(
+                ledgerManager,
+                usageExtractor,
+                budgetEvaluator,
+                budgetStateStore,
+                costCalculator,
+                pricingRegistry,
+                LedgerComponents.defaultPricingEvaluator(),
+                missingPricingPolicy
+        );
+    }
+
+    public DefaultLedgerAdvisor(LedgerManager ledgerManager, UsageExtractor usageExtractor,
+                                BudgetEvaluator budgetEvaluator, BudgetStateStore budgetStateStore,
+                                CostCalculator costCalculator, PricingRegistry pricingRegistry,
+                                PricingEvaluator pricingEvaluator,
+                                MissingPricingPolicy missingPricingPolicy) {
         this.ledgerManager = ledgerManager;
         this.usageExtractor = usageExtractor;
         this.budgetEvaluator = budgetEvaluator;
         this.budgetStateStore = budgetStateStore;
         this.costCalculator = costCalculator;
         this.pricingRegistry = pricingRegistry;
+        this.pricingEvaluator = Objects.requireNonNull(
+                pricingEvaluator,
+                "pricingEvaluator must not be null"
+        );
         this.missingPricingPolicy = Objects.requireNonNull(
                 missingPricingPolicy,
                 "missingPricingPolicy must not be null"
@@ -105,20 +128,27 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
 
         Optional<PricingSnapshot> snapshot = extractPricingSnapshot(response);
         boolean hasPricingResolution = hasPricingResolution(response);
-        if (snapshot.isPresent()) {
-            if (!snapshot.get().modelId().equals(responseModelId)) {
-                return withReconciliationResult(response, PricingReconciliationResult.RECONCILIATION_REQUIRED);
+        if (snapshot.isPresent() || hasPricingResolution) {
+            PricingReconciliationResult reconciliationResult = pricingEvaluator.determineReconciliation(
+                    snapshot,
+                    responseModelId
+            );
+            if (reconciliationResult != PricingReconciliationResult.RECONCILED) {
+                return withReconciliationResult(response, reconciliationResult);
             }
 
+            PricingSnapshot resolvedSnapshot = snapshot.orElseThrow(
+                    () -> new IllegalStateException("Reconciled pricing snapshot is missing")
+            );
             Cost cost;
             try {
-                cost = ledgerManager.record(snapshot.get(), usage, tags);
+                cost = ledgerManager.record(resolvedSnapshot, usage, tags);
             } catch (MissingPricingException exception) {
                 return handleActualPricingFailure(response, exception);
             }
             ChatClientResponse reconciledResponse = withReconciliationResult(
                     response,
-                    PricingReconciliationResult.RECONCILED
+                    reconciliationResult
             );
             if (budgetStateStore != null) {
                 BudgetDecision decision = extractBudgetDecision(reconciledResponse);
@@ -129,11 +159,9 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
                 );
             }
             return reconciledResponse;
-        } else if (!hasPricingResolution) {
+        } else {
             ledgerManager.record(modelId, usage, tags);
             recordLegacyBudgetCost(modelId, usage, response);
-        } else {
-            return withReconciliationResult(response, PricingReconciliationResult.UNPRICED);
         }
 
         return response;
@@ -189,47 +217,14 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
 
     private ChatClientRequest resolvePricing(ChatClientRequest request) {
         String modelId = extractModelId(request);
-        if (modelId == null) {
-            PricingResolution resolution = PricingResolution.MISSING_PLAN;
-            rejectMissingPricingIfFailClosed(resolution);
-            return withPricingContext(
-                    request,
-                    extractPricingPolicyId(request),
-                    resolution,
-                    Optional.empty()
-            );
-        }
-
         String pricingPolicyId = extractPricingPolicyId(request);
-        Optional<PricingSnapshot> snapshot = pricingRegistry.resolveSnapshot(modelId, pricingPolicyId);
-        PricingResolution resolution = resolvePricingResolution(snapshot);
+        Optional<PricingSnapshot> snapshot = modelId == null
+                ? Optional.empty()
+                : pricingRegistry.resolveSnapshot(modelId, pricingPolicyId);
+        PricingResolution resolution = pricingEvaluator.validateSnapshotRates(snapshot);
         rejectMissingPricingIfFailClosed(resolution);
 
         return withPricingContext(request, pricingPolicyId, resolution, snapshot);
-    }
-
-    private PricingResolution resolvePricingResolution(Optional<PricingSnapshot> snapshot) {
-        if (snapshot.isEmpty()) {
-            return PricingResolution.MISSING_PLAN;
-        }
-
-        return resolveRequiredRates(snapshot.get());
-    }
-
-    private PricingResolution resolveRequiredRates(PricingSnapshot snapshot) {
-        PricingPlan plan = new PricingPlan(
-                snapshot.modelId(),
-                snapshot.pricingPolicyId(),
-                snapshot.rates(),
-                snapshot.currency()
-        );
-
-        PricingResolution promptResolution = plan.resolveRate(TokenType.PROMPT);
-        if (!promptResolution.isResolved()) {
-            return promptResolution;
-        }
-
-        return plan.resolveRate(TokenType.COMPLETION);
     }
 
     private ChatClientRequest withPricingContext(
