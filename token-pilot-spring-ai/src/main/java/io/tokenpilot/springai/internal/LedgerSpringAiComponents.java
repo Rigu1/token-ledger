@@ -4,7 +4,10 @@ import io.tokenpilot.budget.BudgetEvaluator;
 import io.tokenpilot.budget.BudgetStateStore;
 import io.tokenpilot.core.CostCalculator;
 import io.tokenpilot.core.LedgerManager;
+import io.tokenpilot.core.PricingEvaluator;
 import io.tokenpilot.core.PricingRegistry;
+import io.tokenpilot.core.domain.MissingPricingPolicy;
+import io.tokenpilot.core.internal.LedgerComponents;
 import io.tokenpilot.springai.LedgerAdvisor;
 import io.tokenpilot.springai.UsageExtractor;
 
@@ -30,10 +33,88 @@ public final class LedgerSpringAiComponents {
     public static LedgerAdvisor defaultLedgerAdvisor(
             LedgerManager ledgerManager,
             UsageExtractor usageExtractor,
+            CostCalculator costCalculator,
+            PricingRegistry pricingRegistry
+    ) {
+        return new DefaultLedgerAdvisor(
+                ledgerManager,
+                usageExtractor,
+                null,
+                null,
+                costCalculator,
+                pricingRegistry,
+                MissingPricingPolicy.FAIL_OPEN
+        );
+    }
+
+    public static LedgerAdvisor defaultLedgerAdvisor(
+            LedgerManager ledgerManager,
+            UsageExtractor usageExtractor,
+            CostCalculator costCalculator,
+            PricingRegistry pricingRegistry,
+            PricingEvaluator pricingEvaluator
+    ) {
+        return defaultLedgerAdvisor(
+                ledgerManager,
+                usageExtractor,
+                null,
+                null,
+                costCalculator,
+                pricingRegistry,
+                pricingEvaluator,
+                MissingPricingPolicy.FAIL_OPEN
+        );
+    }
+
+    public static LedgerAdvisor defaultLedgerAdvisor(
+            LedgerManager ledgerManager,
+            UsageExtractor usageExtractor,
             BudgetEvaluator budgetEvaluator,
             BudgetStateStore budgetStateStore,
             CostCalculator costCalculator,
             PricingRegistry pricingRegistry
+    ) {
+        return defaultLedgerAdvisor(
+                ledgerManager,
+                usageExtractor,
+                budgetEvaluator,
+                budgetStateStore,
+                costCalculator,
+                pricingRegistry,
+                MissingPricingPolicy.FAIL_OPEN
+        );
+    }
+
+    public static LedgerAdvisor defaultLedgerAdvisor(
+            LedgerManager ledgerManager,
+            UsageExtractor usageExtractor,
+            BudgetEvaluator budgetEvaluator,
+            BudgetStateStore budgetStateStore,
+            CostCalculator costCalculator,
+            PricingRegistry pricingRegistry,
+            MissingPricingPolicy missingPricingPolicy
+    ) {
+        return defaultLedgerAdvisor(
+                ledgerManager,
+                usageExtractor,
+                budgetEvaluator,
+                budgetStateStore,
+                costCalculator,
+                pricingRegistry,
+                LedgerComponents.defaultPricingEvaluator(),
+                missingPricingPolicy
+        );
+    }
+
+    public static LedgerAdvisor defaultLedgerAdvisor(
+            LedgerManager ledgerManager,
+            UsageExtractor usageExtractor,
+            BudgetEvaluator budgetEvaluator,
+            BudgetStateStore budgetStateStore,
+            CostCalculator costCalculator,
+            PricingRegistry pricingRegistry,
+            PricingEvaluator pricingEvaluator,
+            MissingPricingPolicy missingPricingPolicy
     ) {
         return new DefaultLedgerAdvisor(
                 ledgerManager,
@@ -41,7 +122,9 @@ public final class LedgerSpringAiComponents {
                 budgetEvaluator,
                 budgetStateStore,
                 costCalculator,
-                pricingRegistry
+                pricingRegistry,
+                pricingEvaluator,
+                missingPricingPolicy
         );
     }
 }

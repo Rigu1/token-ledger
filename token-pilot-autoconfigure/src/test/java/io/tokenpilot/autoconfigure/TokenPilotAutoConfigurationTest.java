@@ -11,11 +11,17 @@ import io.tokenpilot.budget.BudgetThreshold;
 import io.tokenpilot.budget.BudgetWindow;
 import io.tokenpilot.core.CostCalculator;
 import io.tokenpilot.core.LedgerManager;
+import io.tokenpilot.core.PricingEvaluator;
 import io.tokenpilot.core.PricingProvider;
 import io.tokenpilot.core.PricingRegistry;
 import io.tokenpilot.core.domain.Cost;
 import io.tokenpilot.core.domain.PricingPlan;
+import io.tokenpilot.core.domain.PricingReconciliationResult;
+import io.tokenpilot.core.domain.PricingResolution;
+import io.tokenpilot.core.domain.PricingSnapshot;
+import io.tokenpilot.core.domain.TokenType;
 import io.tokenpilot.core.domain.TokenUsage;
+import io.tokenpilot.core.exception.MissingPricingException;
 import io.tokenpilot.notification.BudgetNotificationHandler;
 import io.tokenpilot.notification.BudgetNotificationService;
 import io.tokenpilot.notification.NotificationStateStore;
@@ -29,6 +35,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.advisor.api.AdvisorChain;
+import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -47,6 +54,7 @@ import java.util.stream.Stream;
 import static io.tokenpilot.core.domain.TokenType.COMPLETION;
 import static io.tokenpilot.core.domain.TokenType.PROMPT;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.params.provider.Arguments.argumentSet;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -69,6 +77,7 @@ class TokenPilotAutoConfigurationTest {
             assertThat(context).hasSingleBean(PricingProvider.class);
             assertThat(context).hasSingleBean(PricingRegistry.class);
             assertThat(context).hasSingleBean(CostCalculator.class);
+            assertThat(context).hasSingleBean(PricingEvaluator.class);
             assertThat(context).hasSingleBean(LedgerManager.class);
 
             assertThat(context).hasSingleBean(UsageExtractor.class);
@@ -80,6 +89,54 @@ class TokenPilotAutoConfigurationTest {
             assertThat(context).doesNotHaveBean(NotificationStateStore.class);
             assertThat(context).doesNotHaveBean(BudgetNotificationService.class);
         });
+    }
+
+    @Test
+    @DisplayName("Ledger-only advisor는 Prompt model과 기본 policy로 pricing snapshot을 resolve해야 한다")
+    void shouldResolvePricingSnapshotInLedgerOnlyAdvisor() {
+        this.contextRunner
+            .withPropertyValues(
+                "token-pilot.budget.enabled=false",
+                PROP_MODEL_ID + "=gpt-4o",
+                PROP_PROMPT + "=0.005",
+                PROP_COMPLETION + "=0.015",
+                PROP_CURRENCY + "=USD"
+            )
+            .run(context -> {
+                LedgerAdvisor advisor = context.getBean(LedgerAdvisor.class);
+                ChatClientRequest request = new ChatClientRequest(
+                    new Prompt(
+                        "test",
+                        ChatOptions.builder().model("gpt-4o").build()
+                    ),
+                    Map.of()
+                );
+
+                ChatClientRequest resolvedRequest = advisor.before(
+                    request,
+                    mock(AdvisorChain.class)
+                );
+                Optional<PricingSnapshot> snapshot = resolvedRequest.context()
+                    .values()
+                    .stream()
+                    .filter(PricingSnapshot.class::isInstance)
+                    .map(PricingSnapshot.class::cast)
+                    .findFirst();
+
+                assertThat(resolvedRequest.context().values())
+                    .contains(PricingResolution.RESOLVED);
+                assertThat(snapshot)
+                    .isPresent()
+                    .get()
+                    .satisfies(resolvedSnapshot -> {
+                        assertThat(resolvedSnapshot.modelId())
+                            .isEqualTo("gpt-4o");
+                        assertThat(resolvedSnapshot.pricingPolicyId())
+                            .isEqualTo(PricingPlan.DEFAULT_PRICING_POLICY_ID);
+                        assertThat(resolvedSnapshot.currency())
+                            .isEqualTo(Currency.getInstance("USD"));
+                    });
+            });
     }
 
     @Test
@@ -240,14 +297,23 @@ class TokenPilotAutoConfigurationTest {
     void shouldWireBudgetEvaluatorIntoLedgerAdvisorWhenBudgetEnabled() {
         this.contextRunner
             .withUserConfiguration(RecordingBudgetEvaluatorConfiguration.class)
-            .withPropertyValues("token-pilot.budget.enabled=true")
+            .withPropertyValues(
+                "token-pilot.budget.enabled=true",
+                PROP_MODEL_ID + "=gpt-4o",
+                PROP_PROMPT + "=0.005",
+                PROP_COMPLETION + "=0.015",
+                PROP_CURRENCY + "=USD"
+            )
             .run(context -> {
                 LedgerAdvisor advisor = context.getBean(LedgerAdvisor.class);
                 RecordingBudgetEvaluator evaluator = context.getBean(RecordingBudgetEvaluator.class);
 
                 ChatClientRequest request = new ChatClientRequest(
                     new Prompt("test"),
-                    Map.of("tenant_id", "tenant-abc")
+                    Map.of(
+                        "tenant_id", "tenant-abc",
+                        "tokenpilot.model.id", "gpt-4o"
+                    )
                 );
 
                 advisor.before(request, mock(AdvisorChain.class));
@@ -258,6 +324,30 @@ class TokenPilotAutoConfigurationTest {
                     softly.assertThat(evaluator.lastTags())
                         .containsEntry("tenant_id", "tenant-abc");
                 });
+            });
+    }
+
+    @Test
+    @DisplayName("Budget가 활성화되면 missing pricing policy 기본값은 FAIL_CLOSED여야 한다")
+    void shouldUseFailClosedMissingPricingPolicyWhenBudgetEnabled() {
+        this.contextRunner
+            .withUserConfiguration(RecordingBudgetEvaluatorConfiguration.class)
+            .withPropertyValues("token-pilot.budget.enabled=true")
+            .run(context -> {
+                LedgerAdvisor advisor = context.getBean(LedgerAdvisor.class);
+                ChatClientRequest request = new ChatClientRequest(
+                    new Prompt("test"),
+                    Map.of(
+                        "tenant_id", "tenant-abc",
+                        "tokenpilot.model.id", "missing-model"
+                    )
+                );
+
+                assertThatThrownBy(() -> advisor.before(request, mock(AdvisorChain.class)))
+                    .isInstanceOf(MissingPricingException.class)
+                    .hasMessage("MISSING_PLAN")
+                    .extracting(exception -> ((MissingPricingException) exception).getResolution())
+                    .isEqualTo(PricingResolution.MISSING_PLAN);
             });
     }
 
@@ -302,6 +392,9 @@ class TokenPilotAutoConfigurationTest {
                 assertThat(context).hasSingleBean(PricingRegistry.class);
                 assertThat(context.getBean(PricingRegistry.class))
                     .isInstanceOf(UserCustomPricingRegistry.class);
+                assertThat(context).hasSingleBean(PricingEvaluator.class);
+                assertThat(context.getBean(PricingEvaluator.class))
+                    .isInstanceOf(UserCustomPricingEvaluator.class);
             });
     }
 
@@ -373,11 +466,35 @@ class TokenPilotAutoConfigurationTest {
         public PricingRegistry pricingRegistry() {
             return new UserCustomPricingRegistry();
         }
+
+        @Bean
+        public PricingEvaluator pricingEvaluator() {
+            return new UserCustomPricingEvaluator();
+        }
+    }
+
+    static class UserCustomPricingEvaluator implements PricingEvaluator {
+        @Override
+        public PricingResolution validateSnapshotRates(Optional<PricingSnapshot> snapshot) {
+            return PricingResolution.MISSING_PLAN;
+        }
+
+        @Override
+        public PricingReconciliationResult determineReconciliation(
+            Optional<PricingSnapshot> snapshot,
+            String actualModelId
+        ) {
+            return PricingReconciliationResult.RECONCILIATION_REQUIRED;
+        }
     }
 
     static class UserCustomPricingRegistry implements PricingRegistry {
         @Override public void registerPlan(PricingPlan plan) {}
         @Override public Optional<PricingPlan> getPlan(String modelId) { return Optional.empty(); }
+        @Override public Optional<PricingPlan> getPlan(String modelId, String pricingPolicyId) { return Optional.empty(); }
+        @Override public Optional<PricingSnapshot> resolveSnapshot(String modelId, String pricingPolicyId) { return Optional.empty(); }
+        @Override public PricingResolution resolveRate(String modelId, TokenType tokenType) { return PricingResolution.MISSING_PLAN; }
+        @Override public PricingResolution resolveRate(String modelId, TokenType tokenType, Currency expectedCurrency) { return PricingResolution.MISSING_PLAN; }
     }
 
     @Configuration(proxyBeanMethods = false)

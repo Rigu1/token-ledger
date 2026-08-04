@@ -49,12 +49,38 @@ class DefaultLedgerManager implements LedgerManager {
                 .map(plan -> costCalculator.calculate(usage, plan))
                 .orElse(Cost.zero(UNPRICED_COST_CURRENCY));
 
+        publish(modelId, usage, cost, tags);
+
+        return cost;
+    }
+
+    @Override
+    public Cost record(PricingPlan plan, TokenUsage usage, Map<String, String> tags) {
+        return recordResolvedPlan(plan, usage, tags);
+    }
+
+    @Override
+    public Cost record(PricingSnapshot snapshot, TokenUsage usage, Map<String, String> tags) {
+        PricingPlan plan = new PricingPlan(
+                snapshot.modelId(),
+                snapshot.pricingPolicyId(),
+                snapshot.rates(),
+                snapshot.currency()
+        );
+        return recordResolvedPlan(plan, usage, tags);
+    }
+
+    private Cost recordResolvedPlan(PricingPlan plan, TokenUsage usage, Map<String, String> tags) {
+        Cost cost = costCalculator.calculate(usage, plan);
+        publish(plan.modelId(), usage, cost, tags);
+        return cost;
+    }
+
+    private void publish(String modelId, TokenUsage usage, Cost cost, Map<String, String> tags) {
         // 이벤트 발행 (리스너들에게 전파)
         if (!listeners.isEmpty()) {
             CostRecordedEvent event = new CostRecordedEvent(modelId, usage, cost, tags);
             listeners.forEach(listener -> listener.onRecord(event));
         }
-
-        return cost;
     }
 }

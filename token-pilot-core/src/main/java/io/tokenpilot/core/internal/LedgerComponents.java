@@ -3,6 +3,7 @@ package io.tokenpilot.core.internal;
 import io.tokenpilot.core.CostCalculator;
 import io.tokenpilot.core.LedgerListener;
 import io.tokenpilot.core.LedgerManager;
+import io.tokenpilot.core.PricingEvaluator;
 import io.tokenpilot.core.PricingProvider;
 import io.tokenpilot.core.PricingRegistry;
 
@@ -18,6 +19,10 @@ public final class LedgerComponents {
 
     public static CostCalculator defaultCostCalculator() {
         return new DefaultCostCalculator();
+    }
+
+    public static PricingEvaluator defaultPricingEvaluator() {
+        return new DefaultPricingEvaluator();
     }
 
     public static PricingRegistry inMemoryPricingRegistry(List<PricingProvider> providers) {

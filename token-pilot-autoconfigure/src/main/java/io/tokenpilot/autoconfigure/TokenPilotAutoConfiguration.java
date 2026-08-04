@@ -7,8 +7,10 @@ import io.tokenpilot.budget.internal.LedgerBudgetComponents;
 import io.tokenpilot.core.CostCalculator;
 import io.tokenpilot.core.LedgerListener;
 import io.tokenpilot.core.LedgerManager;
+import io.tokenpilot.core.PricingEvaluator;
 import io.tokenpilot.core.PricingProvider;
 import io.tokenpilot.core.PricingRegistry;
+import io.tokenpilot.core.domain.MissingPricingPolicy;
 import io.tokenpilot.core.internal.LedgerComponents;
 import io.tokenpilot.micrometer.internal.LedgerMicrometerComponents;
 import io.tokenpilot.springai.LedgerAdvisor;
@@ -71,6 +73,15 @@ public class TokenPilotAutoConfiguration {
     }
 
     /**
+     * Pricing snapshot rate와 actual model 정합성을 평가하는 정책을 등록합니다.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public PricingEvaluator pricingEvaluator() {
+        return LedgerComponents.defaultPricingEvaluator();
+    }
+
+    /**
      * 비용 기록 및 리스너 관리를 담당하는 LedgerManager를 등록합니다.
      */
     @Bean
@@ -108,7 +119,8 @@ public class TokenPilotAutoConfiguration {
             ObjectProvider<BudgetEvaluator> budgetEvaluator,
             ObjectProvider<BudgetStateStore> budgetStateStore,
             CostCalculator costCalculator,
-            PricingRegistry pricingRegistry
+            PricingRegistry pricingRegistry,
+            PricingEvaluator pricingEvaluator
     ) {
         BudgetEvaluator evaluator = budgetEvaluator.getIfAvailable();
         BudgetStateStore stateStore = budgetStateStore.getIfAvailable();
@@ -120,11 +132,19 @@ public class TokenPilotAutoConfiguration {
                     evaluator,
                     stateStore,
                     costCalculator,
-                    pricingRegistry
+                    pricingRegistry,
+                    pricingEvaluator,
+                    MissingPricingPolicy.FAIL_CLOSED
             );
         }
 
-        return LedgerSpringAiComponents.defaultLedgerAdvisor(ledgerManager, usageExtractor);
+        return LedgerSpringAiComponents.defaultLedgerAdvisor(
+                ledgerManager,
+                usageExtractor,
+                costCalculator,
+                pricingRegistry,
+                pricingEvaluator
+        );
     }
 
     /**

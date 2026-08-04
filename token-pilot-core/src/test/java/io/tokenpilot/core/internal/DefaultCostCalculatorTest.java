@@ -2,10 +2,12 @@ package io.tokenpilot.core.internal;
 
 import io.tokenpilot.core.domain.Cost;
 import io.tokenpilot.core.domain.PricingPlan;
+import io.tokenpilot.core.domain.PricingResolution;
 import io.tokenpilot.core.domain.TokenType;
 import io.tokenpilot.core.domain.TokenUsage;
 import io.tokenpilot.core.domain.TokenUsageDetails;
 import io.tokenpilot.core.domain.UsageSource;
+import io.tokenpilot.core.exception.MissingPricingException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -14,6 +16,7 @@ import java.util.Currency;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class DefaultCostCalculatorTest {
 
@@ -89,5 +92,36 @@ class DefaultCostCalculatorTest {
         Cost cost = calculator.calculate(TokenUsage.from(1_000, 0), plan);
 
         assertThat(cost.value()).isEqualByComparingTo("0.0004");
+    }
+
+    @Test
+    @DisplayName("실제 completion 사용량에 필요한 rate가 없으면 MISSING_RATE여야 한다")
+    void failWhenActualCompletionRateIsMissing() {
+        PricingPlan plan = new PricingPlan(
+                "prompt-only-model",
+                Map.of(TokenType.PROMPT, new BigDecimal("0.01")),
+                Currency.getInstance("USD")
+        );
+        TokenUsage usage = TokenUsage.from(1_000, 1_000);
+
+        assertThatThrownBy(() -> calculator.calculate(usage, plan))
+                .isInstanceOf(MissingPricingException.class)
+                .extracting(exception -> ((MissingPricingException) exception).getResolution())
+                .isEqualTo(PricingResolution.MISSING_RATE);
+    }
+
+    @Test
+    @DisplayName("실제 사용량이 없는 token type의 누락 rate는 계산을 실패시키지 않아야 한다")
+    void doNotRequireRateWhenActualUsageIsZero() {
+        PricingPlan plan = new PricingPlan(
+                "prompt-only-model",
+                Map.of(TokenType.PROMPT, new BigDecimal("0.01")),
+                Currency.getInstance("USD")
+        );
+        TokenUsage usage = TokenUsage.from(1_000, 0);
+
+        Cost cost = calculator.calculate(usage, plan);
+
+        assertThat(cost.value()).isEqualByComparingTo("0.01");
     }
 }

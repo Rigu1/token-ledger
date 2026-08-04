@@ -4,7 +4,7 @@
 
 Token Pilot is evolving from a Spring AI usage-tracking starter into a framework-independent Java LLM control and accounting core with optional framework and observability adapters.
 
-Current truth: post-call usage normalization, cost calculation, ledger events, Micrometer publishing, Clock-based monthly budget windows, pure budget decisions, legacy provider-boundary BLOCK enforcement, Spring AI integration, and starter autoconfiguration are implemented. Candidate-aware preflight admission, context admission, atomic reservation, and estimate/actual reconciliation are 30-day MVP targets, not current capabilities.
+Current truth: post-call usage normalization, cost calculation, ledger events, Micrometer publishing, Clock-based monthly budget windows, pure budget decisions, typed missing-pricing policies, pricing snapshots, legacy provider-boundary BLOCK enforcement, Spring AI integration, and starter autoconfiguration are implemented. Candidate-aware preflight admission, context admission, atomic reservation, and estimate/actual cost reconciliation are 30-day MVP targets, not current capabilities.
 
 Distribution direction: publish a framework-independent core and an optional Spring AI convenience starter from the same repository and release train. The existing starter artifact is `token-pilot-starter`; `token-pilot-spring-ai-starter` is only a target name until a compatibility ADR and module change land.
 
@@ -71,8 +71,8 @@ Token Pilot의 제품 포지션은 framework-independent Java LLM control and ac
 
 | Module | Status | Notes |
 | --- | --- | --- |
-| `token-pilot-core` | Basic implementation complete | Domain records, pricing, calculator, registry, ledger manager |
-| `token-pilot-spring-ai` | Basic implementation complete | Spring AI 2.0.0 `UsageExtractor`, `LedgerAdvisor`, response usage recording, and legacy provider-boundary BLOCK enforcement |
+| `token-pilot-core` | Basic implementation complete | Domain records, pricing, calculator, registry, ledger manager, pricing snapshots, and missing-pricing evaluator |
+| `token-pilot-spring-ai` | Basic implementation complete | Spring AI 2.0.0 `UsageExtractor`, `LedgerAdvisor`, pricing snapshot resolution, response usage recording, reconciliation decisions, and legacy provider-boundary BLOCK enforcement |
 | `token-pilot-micrometer` | Basic implementation complete | `MetricsOptions`, tag whitelist, and metric metadata exist; metric ownership must be narrowed |
 | `token-pilot-budget` | Basic non-atomic implementation | Typed monthly keys, Clock/ZoneId windows, and pure status/admission decisions implemented; needs candidate estimation, reservation, idempotency, and reconciliation |
 | `token-pilot-notification` | Basic implementation complete | Event API and deduplication exist; not yet connected to the full advisor/budget lifecycle |
@@ -326,7 +326,7 @@ The active checklist is in `docs/30_DAY_MVP_REPORT.md`; detailed long-term works
 - `TokenUsage` now enforces normalized inclusive totals, optional cache-read/cache-creation/reasoning details, and explicit usage provenance. `DefaultCostCalculator` partitions overlapping totals into disjoint billable amounts before applying rates.
 - `Cost` now requires an explicit currency, preserves exact internal `BigDecimal` precision, rejects negative values and cross-currency operations, and defers scale-6 `HALF_UP` rounding to `RoundingPolicy.COST_BOUNDARY_ROUNDING`.
 - Budget money interfaces now use `Cost` while preserving `BudgetKey`, `BudgetPolicy`, Clock/ZoneId monthly windows, and per-key policy snapshots.
-- Until the typed missing-pricing policy lands, `DefaultLedgerManager` preserves the legacy fail-open result as an explicit zero USD `Cost`; do not confuse that compatibility behavior with a priced zero-rate plan.
+- The legacy `DefaultLedgerManager.record(String, ...)` path preserves an explicit zero USD fail-open result for a missing plan; the pricing-snapshot path applies `MissingPricingPolicy` and records `UNPRICED` or rejects before provider invocation, so neither behavior is a priced zero-rate plan.
 - Spring AI usage extraction converts map/JSON-compatible native usage objects into the normalized core model. Real-provider compatibility fixtures remain required because provider and Spring AI usage shapes can change independently.
 - The legacy provider boundary blocks an already-exhausted budget decision before provider invocation. Its candidate-free `STATUS` input is a regression guard, not admission evidence; the flow remains check-then-add and is not an atomic reservation.
 - Current Micrometer `ai.token.*` metrics may duplicate Spring AI Observability; preserve compatibility while deciding default suppression or replacement.
@@ -398,6 +398,7 @@ Stage and deploy a Central release:
 
 ### 2026-08-04
 
+- Added typed missing-pricing policies, immutable pricing snapshots, core rate validation/reconciliation decisions, and Spring AI pre-call pricing resolution; `FAIL_CLOSED` rejects missing plans/rates before provider invocation and `FAIL_OPEN` preserves `UNPRICED`.
 - Preserved the deprecated `BudgetNotificationEvent.currentUsage()` compatibility accessor through 0.1.x while migrating handlers to `projectedUsage()`; removal is planned for 0.2.0.
 
 ### 2026-07-29

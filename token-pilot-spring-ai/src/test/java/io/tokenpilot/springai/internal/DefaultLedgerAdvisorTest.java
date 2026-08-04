@@ -11,7 +11,8 @@ import io.tokenpilot.budget.BudgetWindow;
 import io.tokenpilot.budget.exception.BudgetExceededException;
 import io.tokenpilot.core.*;
 import io.tokenpilot.core.domain.*;
-import io.tokenpilot.springai.LedgerAdvisor;
+import io.tokenpilot.core.exception.MissingPricingException;
+import io.tokenpilot.core.internal.LedgerComponents;
 import io.tokenpilot.springai.UsageExtractor;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -24,13 +25,16 @@ import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
 import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
+import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.Currency;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -79,12 +83,18 @@ class DefaultLedgerAdvisorTest {
 
         TokenUsage mockUsage = TokenUsage.from(100, 200);
         PricingPlan mockPlan = new PricingPlan("gpt-4o", new BigDecimal("0.01"), new BigDecimal("0.03"), Currency.getInstance("USD"));
+        PricingSnapshot snapshot = PricingSnapshot.from(
+                mockPlan,
+                PricingSnapshot.DEFAULT_CATALOG_VERSION,
+                Instant.parse("2026-07-30T00:00:00Z")
+        );
         Cost mockCost = new Cost(new BigDecimal("0.5"), Currency.getInstance("USD"));
         BudgetDecision budgetDecision = decision();
 
         when(extractor.extract(any())).thenReturn(mockUsage);
-        when(pricingRegistry.getPlan("gpt-4o")).thenReturn(Optional.of(mockPlan));
-        when(costCalculator.calculate(mockUsage, mockPlan)).thenReturn(mockCost);
+        when(pricingRegistry.resolveSnapshot("gpt-4o", PricingPlan.DEFAULT_PRICING_POLICY_ID))
+                .thenReturn(Optional.of(snapshot));
+        when(ledgerManager.record(same(snapshot), same(mockUsage), anyMap())).thenReturn(mockCost);
         when(budgetEvaluator.evaluate(anyMap())).thenReturn(budgetDecision);
 
         DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(ledgerManager, extractor, 
@@ -92,7 +102,10 @@ class DefaultLedgerAdvisorTest {
 
         ChatClientRequest request = new ChatClientRequest(
                 new Prompt("test"),
-                Map.of("tenant_id", "tenant-abc")
+                Map.of(
+                        DefaultLedgerAdvisor.MODEL_ID_CONTEXT, "gpt-4o",
+                        "tenant_id", "tenant-abc"
+                )
         );
         ChatClientRequest resolvedRequest = advisor.before(request, mock(AdvisorChain.class));
 
@@ -107,6 +120,751 @@ class DefaultLedgerAdvisorTest {
                 same(budgetDecision.limit()),
                 same(mockCost)
         );
+        verify(pricingRegistry, times(1)).resolveSnapshot("gpt-4o", PricingPlan.DEFAULT_PRICING_POLICY_ID);
+        verifyNoMoreInteractions(pricingRegistry);
+    }
+
+    @Test
+    @DisplayName("AI 호출 전 pricing snapshot을 만들어 요청 context에 보존해야 한다")
+    void createPricingSnapshotBeforeProviderCall() {
+        LedgerManager ledgerManager = mock(LedgerManager.class);
+        PricingRegistry pricingRegistry = mock(PricingRegistry.class);
+        PricingPlan plan = new PricingPlan(
+                "gpt-4o",
+                "standard",
+                new BigDecimal("0.01"),
+                new BigDecimal("0.03"),
+                Currency.getInstance("USD")
+        );
+        PricingSnapshot snapshot = PricingSnapshot.from(
+                plan,
+                PricingSnapshot.DEFAULT_CATALOG_VERSION,
+                Instant.parse("2026-07-30T00:00:00Z")
+        );
+
+        when(pricingRegistry.resolveSnapshot("gpt-4o", "standard")).thenReturn(Optional.of(snapshot));
+
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(
+                ledgerManager,
+                mock(UsageExtractor.class),
+                null,
+                null,
+                mock(CostCalculator.class),
+                pricingRegistry
+        );
+        ChatClientRequest request = new ChatClientRequest(
+                new Prompt("test"),
+                Map.of(
+                        DefaultLedgerAdvisor.MODEL_ID_CONTEXT, "gpt-4o",
+                        DefaultLedgerAdvisor.PRICING_POLICY_ID_CONTEXT, "standard"
+                )
+        );
+
+        ChatClientRequest resolvedRequest = advisor.before(request, mock(AdvisorChain.class));
+
+        assertThat(resolvedRequest.context().get(DefaultLedgerAdvisor.PRICING_RESOLUTION_CONTEXT))
+                .isEqualTo(PricingResolution.RESOLVED);
+        assertThat(resolvedRequest.context().get(DefaultLedgerAdvisor.PRICING_SNAPSHOT_CONTEXT))
+                .isInstanceOfSatisfying(PricingSnapshot.class, resolvedSnapshot -> {
+                    assertThat(resolvedSnapshot.modelId()).isEqualTo("gpt-4o");
+                    assertThat(resolvedSnapshot.pricingPolicyId()).isEqualTo("standard");
+                    assertThat(resolvedSnapshot.catalogVersion()).isEqualTo(PricingSnapshot.DEFAULT_CATALOG_VERSION);
+                    assertThat(resolvedSnapshot.checkedAt()).isEqualTo(snapshot.checkedAt());
+                    assertThat(resolvedSnapshot.currency()).isEqualTo(Currency.getInstance("USD"));
+                    assertThat(resolvedSnapshot.rates()).containsAllEntriesOf(plan.rates());
+                });
+
+        verify(pricingRegistry, times(1)).resolveSnapshot("gpt-4o", "standard");
+        verifyNoMoreInteractions(pricingRegistry);
+        verifyNoInteractions(ledgerManager);
+    }
+
+    @Test
+    @DisplayName("pricing snapshot rate 검증은 Core PricingEvaluator에 위임해야 한다")
+    void delegateSnapshotRateValidationToPricingEvaluator() {
+        LedgerManager ledgerManager = mock(LedgerManager.class);
+        PricingRegistry pricingRegistry = mock(PricingRegistry.class);
+        PricingEvaluator pricingEvaluator = mock(PricingEvaluator.class);
+        PricingSnapshot snapshot = PricingSnapshot.from(
+                new PricingPlan(
+                        "gpt-4o",
+                        new BigDecimal("0.01"),
+                        new BigDecimal("0.03"),
+                        Currency.getInstance("USD")
+                ),
+                PricingSnapshot.DEFAULT_CATALOG_VERSION,
+                Instant.parse("2026-07-30T00:00:00Z")
+        );
+
+        when(pricingRegistry.resolveSnapshot("gpt-4o", PricingPlan.DEFAULT_PRICING_POLICY_ID))
+                .thenReturn(Optional.of(snapshot));
+        when(pricingEvaluator.validateSnapshotRates(any())).thenReturn(PricingResolution.MISSING_RATE);
+
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(
+                ledgerManager,
+                mock(UsageExtractor.class),
+                null,
+                null,
+                mock(CostCalculator.class),
+                pricingRegistry,
+                pricingEvaluator,
+                MissingPricingPolicy.FAIL_OPEN
+        );
+        ChatClientRequest request = new ChatClientRequest(
+                new Prompt("test"),
+                Map.of(DefaultLedgerAdvisor.MODEL_ID_CONTEXT, "gpt-4o")
+        );
+
+        ChatClientRequest resolvedRequest = advisor.before(request, mock(AdvisorChain.class));
+
+        assertThat(resolvedRequest.context().get(DefaultLedgerAdvisor.PRICING_RESOLUTION_CONTEXT))
+                .isEqualTo(PricingResolution.MISSING_RATE);
+        assertThat(resolvedRequest.context()).doesNotContainKey(DefaultLedgerAdvisor.PRICING_SNAPSHOT_CONTEXT);
+        verify(pricingEvaluator).validateSnapshotRates(
+                argThat(candidate -> candidate.isPresent() && candidate.get() == snapshot)
+        );
+        verifyNoInteractions(ledgerManager);
+    }
+
+    @Test
+    @DisplayName("Prompt options의 model과 기본 pricing policy로 snapshot을 resolve해야 한다")
+    void resolvePricingSnapshotFromPromptOptions() {
+        LedgerManager ledgerManager = mock(LedgerManager.class);
+        PricingRegistry pricingRegistry = mock(PricingRegistry.class);
+        PricingPlan plan = new PricingPlan(
+                "gpt-4o",
+                new BigDecimal("0.01"),
+                new BigDecimal("0.03"),
+                Currency.getInstance("USD")
+        );
+        PricingSnapshot snapshot = PricingSnapshot.from(
+                plan,
+                PricingSnapshot.DEFAULT_CATALOG_VERSION,
+                Instant.parse("2026-07-30T00:00:00Z")
+        );
+
+        when(pricingRegistry.resolveSnapshot("gpt-4o", PricingPlan.DEFAULT_PRICING_POLICY_ID))
+                .thenReturn(Optional.of(snapshot));
+
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(
+                ledgerManager,
+                mock(UsageExtractor.class),
+                null,
+                null,
+                mock(CostCalculator.class),
+                pricingRegistry
+        );
+        ChatClientRequest request = new ChatClientRequest(
+                new Prompt(
+                        "test",
+                        ChatOptions.builder().model("gpt-4o").build()
+                ),
+                Map.of()
+        );
+
+        ChatClientRequest resolvedRequest = advisor.before(request, mock(AdvisorChain.class));
+
+        assertThat(resolvedRequest.context().get(DefaultLedgerAdvisor.PRICING_RESOLUTION_CONTEXT))
+                .isEqualTo(PricingResolution.RESOLVED);
+        assertThat(resolvedRequest.context().get(DefaultLedgerAdvisor.PRICING_SNAPSHOT_CONTEXT))
+                .isSameAs(snapshot);
+        verify(pricingRegistry, times(1))
+                .resolveSnapshot("gpt-4o", PricingPlan.DEFAULT_PRICING_POLICY_ID);
+        verifyNoMoreInteractions(pricingRegistry);
+        verifyNoInteractions(ledgerManager);
+    }
+
+    @Test
+    @DisplayName("AI 호출 전 completion rate가 없는 부분 snapshot은 MISSING_RATE여야 한다")
+    void resolvePartialPricingSnapshotAsMissingRateBeforeProviderCall() {
+        LedgerManager ledgerManager = mock(LedgerManager.class);
+        PricingRegistry pricingRegistry = mock(PricingRegistry.class);
+        PricingPlan plan = new PricingPlan(
+                "prompt-only-model",
+                Map.of(TokenType.PROMPT, new BigDecimal("0.01")),
+                Currency.getInstance("USD")
+        );
+        PricingSnapshot snapshot = PricingSnapshot.from(
+                plan,
+                PricingSnapshot.DEFAULT_CATALOG_VERSION,
+                Instant.parse("2026-07-30T00:00:00Z")
+        );
+
+        when(pricingRegistry.resolveSnapshot("prompt-only-model", PricingPlan.DEFAULT_PRICING_POLICY_ID))
+                .thenReturn(Optional.of(snapshot));
+
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(
+                ledgerManager,
+                mock(UsageExtractor.class),
+                null,
+                null,
+                mock(CostCalculator.class),
+                pricingRegistry
+        );
+        ChatClientRequest request = new ChatClientRequest(
+                new Prompt("test"),
+                Map.of(DefaultLedgerAdvisor.MODEL_ID_CONTEXT, "prompt-only-model")
+        );
+
+        ChatClientRequest resolvedRequest = advisor.before(request, mock(AdvisorChain.class));
+
+        assertThat(resolvedRequest.context().get(DefaultLedgerAdvisor.PRICING_RESOLUTION_CONTEXT))
+                .isEqualTo(PricingResolution.MISSING_RATE);
+        verify(pricingRegistry, times(1))
+                .resolveSnapshot("prompt-only-model", PricingPlan.DEFAULT_PRICING_POLICY_ID);
+        verifyNoMoreInteractions(pricingRegistry);
+        verifyNoInteractions(ledgerManager);
+    }
+
+    @Test
+    @DisplayName("AI 응답 후 actual reconciliation은 registry를 다시 조회하지 않고 snapshot으로 기록해야 한다")
+    void reconcileActualWithPricingSnapshot() {
+        LedgerManager ledgerManager = mock(LedgerManager.class);
+        UsageExtractor extractor = mock(UsageExtractor.class);
+        PricingRegistry pricingRegistry = mock(PricingRegistry.class);
+        TokenUsage usage = TokenUsage.from(100, 200);
+        PricingPlan plan = new PricingPlan(
+                "gpt-4o",
+                "standard",
+                new BigDecimal("0.01"),
+                new BigDecimal("0.03"),
+                Currency.getInstance("USD")
+        );
+        PricingSnapshot snapshot = PricingSnapshot.from(
+                plan,
+                PricingSnapshot.DEFAULT_CATALOG_VERSION,
+                Instant.parse("2026-07-30T00:00:00Z")
+        );
+
+        when(extractor.extract(any())).thenReturn(usage);
+        when(pricingRegistry.resolveSnapshot("gpt-4o", "standard")).thenReturn(Optional.of(snapshot));
+
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(
+                ledgerManager,
+                extractor,
+                null,
+                null,
+                mock(CostCalculator.class),
+                pricingRegistry
+        );
+        ChatClientRequest request = new ChatClientRequest(
+                new Prompt("test"),
+                Map.of(
+                        DefaultLedgerAdvisor.MODEL_ID_CONTEXT, "gpt-4o",
+                        DefaultLedgerAdvisor.PRICING_POLICY_ID_CONTEXT, "standard"
+                )
+        );
+        ChatClientRequest resolvedRequest = advisor.before(request, mock(AdvisorChain.class));
+
+        ChatClientResponse reconciledResponse = advisor.after(
+                response("gpt-4o", resolvedRequest.context()),
+                mock(AdvisorChain.class)
+        );
+
+        assertThat(reconciledResponse.context().get(DefaultLedgerAdvisor.PRICING_RECONCILIATION_RESULT_CONTEXT))
+                .isEqualTo(PricingReconciliationResult.RECONCILED);
+
+        verify(pricingRegistry, times(1)).resolveSnapshot("gpt-4o", "standard");
+        verifyNoMoreInteractions(pricingRegistry);
+        verify(ledgerManager, times(1)).record(same(snapshot), same(usage), anyMap());
+        verify(ledgerManager, never()).record(eq("gpt-4o"), same(usage), anyMap());
+    }
+
+    @Test
+    @DisplayName("actual usage에 필요한 rate가 없으면 UNPRICED로 남기고 비용을 기록하지 않아야 한다")
+    void leaveActualUsageUnpricedWhenRequiredRateIsMissing() {
+        UsageExtractor extractor = mock(UsageExtractor.class);
+        LedgerListener listener = mock(LedgerListener.class);
+        CostCalculator costCalculator = LedgerComponents.defaultCostCalculator();
+        LedgerManager ledgerManager = LedgerComponents.defaultLedgerManager(
+                mock(PricingRegistry.class),
+                costCalculator,
+                List.of(listener)
+        );
+        TokenUsage usage = TokenUsage.from(1_000, 1_000);
+        PricingPlan plan = new PricingPlan(
+                "prompt-only-model",
+                Map.of(TokenType.PROMPT, new BigDecimal("0.01")),
+                Currency.getInstance("USD")
+        );
+        PricingSnapshot snapshot = PricingSnapshot.from(
+                plan,
+                PricingSnapshot.DEFAULT_CATALOG_VERSION,
+                Instant.parse("2026-07-30T00:00:00Z")
+        );
+
+        when(extractor.extract(any())).thenReturn(usage);
+
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(ledgerManager, extractor);
+        ChatClientResponse response = response(
+                "prompt-only-model",
+                Map.of(
+                        DefaultLedgerAdvisor.PRICING_SNAPSHOT_CONTEXT, snapshot,
+                        DefaultLedgerAdvisor.PRICING_RESOLUTION_CONTEXT, PricingResolution.RESOLVED
+                )
+        );
+
+        ChatClientResponse unpricedResponse = advisor.after(response, mock(AdvisorChain.class));
+
+        assertThat(unpricedResponse.context().get(DefaultLedgerAdvisor.PRICING_RESOLUTION_CONTEXT))
+                .isEqualTo(PricingResolution.MISSING_RATE);
+        assertThat(unpricedResponse.context().get(DefaultLedgerAdvisor.PRICING_RECONCILIATION_RESULT_CONTEXT))
+                .isEqualTo(PricingReconciliationResult.UNPRICED);
+        verifyNoInteractions(listener);
+    }
+
+    @Test
+    @DisplayName("FAIL_CLOSED에서 actual usage의 rate가 없으면 reconciliation을 실패시켜야 한다")
+    void failActualReconciliationWhenRequiredRateIsMissingAndPolicyIsFailClosed() {
+        LedgerManager ledgerManager = mock(LedgerManager.class);
+        UsageExtractor extractor = mock(UsageExtractor.class);
+        BudgetStateStore budgetStateStore = mock(BudgetStateStore.class);
+        TokenUsage usage = TokenUsage.from(1_000, 1_000);
+        PricingPlan plan = new PricingPlan(
+                "prompt-only-model",
+                Map.of(TokenType.PROMPT, new BigDecimal("0.01")),
+                Currency.getInstance("USD")
+        );
+        PricingSnapshot snapshot = PricingSnapshot.from(
+                plan,
+                PricingSnapshot.DEFAULT_CATALOG_VERSION,
+                Instant.parse("2026-07-30T00:00:00Z")
+        );
+
+        when(extractor.extract(any())).thenReturn(usage);
+        when(ledgerManager.record(same(snapshot), same(usage), anyMap()))
+                .thenThrow(new MissingPricingException(PricingResolution.MISSING_RATE));
+
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(
+                ledgerManager,
+                extractor,
+                null,
+                budgetStateStore,
+                mock(CostCalculator.class),
+                null,
+                MissingPricingPolicy.FAIL_CLOSED
+        );
+        ChatClientResponse response = response(
+                "prompt-only-model",
+                Map.of(
+                        DefaultLedgerAdvisor.PRICING_SNAPSHOT_CONTEXT, snapshot,
+                        DefaultLedgerAdvisor.PRICING_RESOLUTION_CONTEXT, PricingResolution.RESOLVED
+                )
+        );
+
+        assertThatThrownBy(() -> advisor.after(response, mock(AdvisorChain.class)))
+                .isInstanceOf(MissingPricingException.class)
+                .extracting(exception -> ((MissingPricingException) exception).getResolution())
+                .isEqualTo(PricingResolution.MISSING_RATE);
+
+        verifyNoInteractions(budgetStateStore);
+    }
+
+    @Test
+    @DisplayName("explicit zero는 FAIL_CLOSED에서도 RESOLVED로 처리하고 0원 cost로 reconcile해야 한다")
+    void explicitZeroResolvesAndReconcilesWithZeroCost() {
+        LedgerManager ledgerManager = mock(LedgerManager.class);
+        UsageExtractor extractor = mock(UsageExtractor.class);
+        PricingRegistry pricingRegistry = mock(PricingRegistry.class);
+        TokenUsage usage = TokenUsage.from(100, 200);
+        PricingPlan plan = new PricingPlan(
+                "free-model",
+                BigDecimal.ZERO,
+                BigDecimal.ZERO,
+                Currency.getInstance("USD")
+        );
+        PricingSnapshot snapshot = PricingSnapshot.from(
+                plan,
+                PricingSnapshot.DEFAULT_CATALOG_VERSION,
+                Instant.parse("2026-07-30T00:00:00Z")
+        );
+        Cost zeroCost = Cost.zero(Currency.getInstance("USD"));
+
+        when(extractor.extract(any())).thenReturn(usage);
+        when(pricingRegistry.resolveSnapshot("free-model", PricingPlan.DEFAULT_PRICING_POLICY_ID))
+                .thenReturn(Optional.of(snapshot));
+        when(ledgerManager.record(same(snapshot), same(usage), anyMap())).thenReturn(zeroCost);
+
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(
+                ledgerManager,
+                extractor,
+                null,
+                null,
+                mock(CostCalculator.class),
+                pricingRegistry,
+                MissingPricingPolicy.FAIL_CLOSED
+        );
+        ChatClientRequest request = new ChatClientRequest(
+                new Prompt("test"),
+                Map.of(DefaultLedgerAdvisor.MODEL_ID_CONTEXT, "free-model")
+        );
+
+        ChatClientRequest resolvedRequest = advisor.before(request, mock(AdvisorChain.class));
+
+        assertThat(resolvedRequest.context().get(DefaultLedgerAdvisor.PRICING_RESOLUTION_CONTEXT))
+                .isEqualTo(PricingResolution.RESOLVED);
+        assertThat(resolvedRequest.context().get(DefaultLedgerAdvisor.PRICING_SNAPSHOT_CONTEXT))
+                .isSameAs(snapshot);
+
+        ChatClientResponse reconciledResponse = advisor.after(
+                response("free-model", resolvedRequest.context()),
+                mock(AdvisorChain.class)
+        );
+
+        assertThat(reconciledResponse.context().get(DefaultLedgerAdvisor.PRICING_RECONCILIATION_RESULT_CONTEXT))
+                .isEqualTo(PricingReconciliationResult.RECONCILED);
+        assertThat(reconciledResponse.context().get(DefaultLedgerAdvisor.PRICING_RECONCILIATION_RESULT_CONTEXT))
+                .isNotEqualTo(PricingReconciliationResult.UNPRICED);
+        verify(ledgerManager, times(1)).record(same(snapshot), same(usage), anyMap());
+    }
+
+    @Test
+    @DisplayName("response model이 snapshot model과 다르면 기존 snapshot을 자동 적용하지 않아야 한다")
+    void requireReconciliationWhenResponseModelDiffersFromSnapshotModel() {
+        LedgerManager ledgerManager = mock(LedgerManager.class);
+        UsageExtractor extractor = mock(UsageExtractor.class);
+        PricingRegistry pricingRegistry = mock(PricingRegistry.class);
+        TokenUsage usage = TokenUsage.from(100, 200);
+        PricingPlan plan = new PricingPlan(
+                "gpt-4o-mini",
+                "standard",
+                new BigDecimal("0.01"),
+                new BigDecimal("0.03"),
+                Currency.getInstance("USD")
+        );
+        PricingSnapshot snapshot = PricingSnapshot.from(
+                plan,
+                PricingSnapshot.DEFAULT_CATALOG_VERSION,
+                Instant.parse("2026-07-30T00:00:00Z")
+        );
+
+        when(extractor.extract(any())).thenReturn(usage);
+        when(pricingRegistry.resolveSnapshot("gpt-4o-mini", "standard")).thenReturn(Optional.of(snapshot));
+
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(
+                ledgerManager,
+                extractor,
+                null,
+                null,
+                mock(CostCalculator.class),
+                pricingRegistry
+        );
+        ChatClientRequest request = new ChatClientRequest(
+                new Prompt("test"),
+                Map.of(
+                        DefaultLedgerAdvisor.MODEL_ID_CONTEXT, "gpt-4o-mini",
+                        DefaultLedgerAdvisor.PRICING_POLICY_ID_CONTEXT, "standard"
+                )
+        );
+        ChatClientRequest resolvedRequest = advisor.before(request, mock(AdvisorChain.class));
+
+        ChatClientResponse result = advisor.after(
+                response("gpt-4o", resolvedRequest.context()),
+                mock(AdvisorChain.class)
+        );
+
+        assertThat(result.context().get(DefaultLedgerAdvisor.PRICING_RECONCILIATION_RESULT_CONTEXT))
+                .isEqualTo(PricingReconciliationResult.RECONCILIATION_REQUIRED);
+        verify(pricingRegistry, times(1)).resolveSnapshot("gpt-4o-mini", "standard");
+        verifyNoMoreInteractions(pricingRegistry);
+        verifyNoInteractions(ledgerManager);
+    }
+
+    @Test
+    @DisplayName("actual model reconciliation 판단은 Core PricingEvaluator에 위임해야 한다")
+    void delegateReconciliationDecisionToPricingEvaluator() {
+        LedgerManager ledgerManager = mock(LedgerManager.class);
+        UsageExtractor extractor = mock(UsageExtractor.class);
+        PricingEvaluator pricingEvaluator = mock(PricingEvaluator.class);
+        PricingSnapshot snapshot = PricingSnapshot.from(
+                new PricingPlan(
+                        "gpt-4o-mini",
+                        new BigDecimal("0.01"),
+                        new BigDecimal("0.03"),
+                        Currency.getInstance("USD")
+                ),
+                PricingSnapshot.DEFAULT_CATALOG_VERSION,
+                Instant.parse("2026-07-30T00:00:00Z")
+        );
+
+        when(extractor.extract(any())).thenReturn(TokenUsage.from(100, 200));
+        when(pricingEvaluator.determineReconciliation(Optional.of(snapshot), "gpt-4o"))
+                .thenReturn(PricingReconciliationResult.RECONCILIATION_REQUIRED);
+
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(
+                ledgerManager,
+                extractor,
+                null,
+                null,
+                mock(CostCalculator.class),
+                null,
+                pricingEvaluator,
+                MissingPricingPolicy.FAIL_OPEN
+        );
+
+        ChatClientResponse result = advisor.after(
+                response(
+                        "gpt-4o",
+                        Map.of(
+                                DefaultLedgerAdvisor.PRICING_SNAPSHOT_CONTEXT, snapshot,
+                                DefaultLedgerAdvisor.PRICING_RESOLUTION_CONTEXT, PricingResolution.RESOLVED
+                        )
+                ),
+                mock(AdvisorChain.class)
+        );
+
+        assertThat(result.context().get(DefaultLedgerAdvisor.PRICING_RECONCILIATION_RESULT_CONTEXT))
+                .isEqualTo(PricingReconciliationResult.RECONCILIATION_REQUIRED);
+        verify(pricingEvaluator).determineReconciliation(Optional.of(snapshot), "gpt-4o");
+        verifyNoInteractions(ledgerManager);
+    }
+
+    @Test
+    @DisplayName("FAIL_OPEN은 missing pricing이어도 provider 호출을 허용하고 UNPRICED로 남겨야 한다")
+    void failOpenAllowsProviderCallAndMarksMissingPricingAsUnpriced() {
+        LedgerManager ledgerManager = mock(LedgerManager.class);
+        UsageExtractor extractor = mock(UsageExtractor.class);
+        PricingRegistry pricingRegistry = mock(PricingRegistry.class);
+        TokenUsage usage = TokenUsage.from(100, 200);
+
+        when(extractor.extract(any())).thenReturn(usage);
+        when(pricingRegistry.resolveSnapshot("missing-model", PricingPlan.DEFAULT_PRICING_POLICY_ID))
+                .thenReturn(Optional.empty());
+
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(
+                ledgerManager,
+                extractor,
+                null,
+                null,
+                mock(CostCalculator.class),
+                pricingRegistry
+        );
+        ChatClientRequest request = new ChatClientRequest(
+                new Prompt("test"),
+                Map.of(DefaultLedgerAdvisor.MODEL_ID_CONTEXT, "missing-model")
+        );
+
+        ChatClientRequest resolvedRequest = advisor.before(request, mock(AdvisorChain.class));
+
+        assertThat(resolvedRequest.context().get(DefaultLedgerAdvisor.PRICING_RESOLUTION_CONTEXT))
+                .isEqualTo(PricingResolution.MISSING_PLAN);
+        assertThat(resolvedRequest.context()).doesNotContainKey(DefaultLedgerAdvisor.PRICING_SNAPSHOT_CONTEXT);
+
+        ChatClientResponse unpricedResponse = advisor.after(
+                response("missing-model", resolvedRequest.context()),
+                mock(AdvisorChain.class)
+        );
+
+        assertThat(unpricedResponse.context().get(DefaultLedgerAdvisor.PRICING_RECONCILIATION_RESULT_CONTEXT))
+                .isEqualTo(PricingReconciliationResult.UNPRICED);
+
+        verify(pricingRegistry, times(1)).resolveSnapshot("missing-model", PricingPlan.DEFAULT_PRICING_POLICY_ID);
+        verifyNoMoreInteractions(pricingRegistry);
+        verifyNoInteractions(ledgerManager);
+    }
+
+    @Test
+    @DisplayName("FAIL_OPEN은 model id가 없어도 MISSING_PLAN을 보존하고 UNPRICED로 남겨야 한다")
+    void failOpenPreservesMissingPlanWhenModelIdIsMissing() {
+        LedgerManager ledgerManager = mock(LedgerManager.class);
+        UsageExtractor extractor = mock(UsageExtractor.class);
+        PricingRegistry pricingRegistry = mock(PricingRegistry.class);
+        TokenUsage usage = TokenUsage.from(100, 200);
+
+        when(extractor.extract(any())).thenReturn(usage);
+
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(
+                ledgerManager,
+                extractor,
+                null,
+                null,
+                mock(CostCalculator.class),
+                pricingRegistry
+        );
+        ChatClientRequest request = new ChatClientRequest(
+                new Prompt("test"),
+                Map.of()
+        );
+
+        ChatClientRequest resolvedRequest = advisor.before(request, mock(AdvisorChain.class));
+
+        assertThat(resolvedRequest.context().get(DefaultLedgerAdvisor.PRICING_RESOLUTION_CONTEXT))
+                .isEqualTo(PricingResolution.MISSING_PLAN);
+        assertThat(resolvedRequest.context()).doesNotContainKey(DefaultLedgerAdvisor.PRICING_SNAPSHOT_CONTEXT);
+
+        ChatClientResponse unpricedResponse = advisor.after(
+                response("unknown-model", resolvedRequest.context()),
+                mock(AdvisorChain.class)
+        );
+
+        assertThat(unpricedResponse.context().get(DefaultLedgerAdvisor.PRICING_RECONCILIATION_RESULT_CONTEXT))
+                .isEqualTo(PricingReconciliationResult.UNPRICED);
+        verifyNoInteractions(pricingRegistry);
+        verifyNoInteractions(ledgerManager);
+    }
+
+    @Test
+    @DisplayName("missing pricing은 CostBound 실패로 전파할 PricingResolution을 보존해야 한다")
+    void preserveMissingPricingResolutionForCostBoundFailure() {
+        LedgerManager ledgerManager = mock(LedgerManager.class);
+        UsageExtractor extractor = mock(UsageExtractor.class);
+        PricingRegistry pricingRegistry = mock(PricingRegistry.class);
+        TokenUsage usage = TokenUsage.from(100, 200);
+
+        when(extractor.extract(any())).thenReturn(usage);
+        when(pricingRegistry.resolveSnapshot("missing-model", PricingPlan.DEFAULT_PRICING_POLICY_ID))
+                .thenReturn(Optional.empty());
+
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(
+                ledgerManager,
+                extractor,
+                null,
+                null,
+                mock(CostCalculator.class),
+                pricingRegistry
+        );
+        ChatClientRequest request = new ChatClientRequest(
+                new Prompt("test"),
+                Map.of(DefaultLedgerAdvisor.MODEL_ID_CONTEXT, "missing-model")
+        );
+        ChatClientRequest resolvedRequest = advisor.before(request, mock(AdvisorChain.class));
+
+        ChatClientResponse unpricedResponse = advisor.after(
+                response("missing-model", resolvedRequest.context()),
+                mock(AdvisorChain.class)
+        );
+
+        assertThat(unpricedResponse.context().get(DefaultLedgerAdvisor.PRICING_RESOLUTION_CONTEXT))
+                .isEqualTo(PricingResolution.MISSING_PLAN);
+        assertThat(unpricedResponse.context().get(DefaultLedgerAdvisor.PRICING_RECONCILIATION_RESULT_CONTEXT))
+                .isEqualTo(PricingReconciliationResult.UNPRICED);
+        verifyNoInteractions(ledgerManager);
+    }
+
+    @Test
+    @DisplayName("FAIL_CLOSED는 provider 호출 전에 missing pricing을 차단하고 invocation count를 0으로 유지해야 한다")
+    void failClosedBlocksMissingPricingBeforeProviderCall() {
+        LedgerManager ledgerManager = mock(LedgerManager.class);
+        UsageExtractor extractor = mock(UsageExtractor.class);
+        PricingRegistry pricingRegistry = mock(PricingRegistry.class);
+        AtomicInteger providerInvocationCount = new AtomicInteger();
+
+        when(pricingRegistry.resolveSnapshot("missing-model", PricingPlan.DEFAULT_PRICING_POLICY_ID))
+                .thenReturn(Optional.empty());
+
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(
+                ledgerManager,
+                extractor,
+                null,
+                null,
+                mock(CostCalculator.class),
+                pricingRegistry,
+                MissingPricingPolicy.FAIL_CLOSED
+        );
+        ChatClientRequest request = new ChatClientRequest(
+                new Prompt("test"),
+                Map.of(DefaultLedgerAdvisor.MODEL_ID_CONTEXT, "missing-model")
+        );
+
+        assertThatThrownBy(() -> {
+            advisor.before(request, mock(AdvisorChain.class));
+            providerInvocationCount.incrementAndGet();
+        })
+                .isInstanceOf(MissingPricingException.class)
+                .hasMessage("MISSING_PLAN")
+                .extracting(exception -> ((MissingPricingException) exception).getResolution())
+                .isEqualTo(PricingResolution.MISSING_PLAN);
+
+        assertThat(providerInvocationCount).hasValue(0);
+        verify(pricingRegistry, times(1)).resolveSnapshot("missing-model", PricingPlan.DEFAULT_PRICING_POLICY_ID);
+        verifyNoMoreInteractions(pricingRegistry);
+        verifyNoInteractions(ledgerManager);
+    }
+
+    @Test
+    @DisplayName("FAIL_CLOSED는 model id가 없으면 provider 호출 전에 차단하고 invocation count를 0으로 유지해야 한다")
+    void failClosedBlocksMissingModelIdBeforeProviderCall() {
+        LedgerManager ledgerManager = mock(LedgerManager.class);
+        UsageExtractor extractor = mock(UsageExtractor.class);
+        PricingRegistry pricingRegistry = mock(PricingRegistry.class);
+        AtomicInteger providerInvocationCount = new AtomicInteger();
+
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(
+                ledgerManager,
+                extractor,
+                null,
+                null,
+                mock(CostCalculator.class),
+                pricingRegistry,
+                MissingPricingPolicy.FAIL_CLOSED
+        );
+        ChatClientRequest request = new ChatClientRequest(
+                new Prompt("test"),
+                Map.of()
+        );
+
+        assertThatThrownBy(() -> {
+            advisor.before(request, mock(AdvisorChain.class));
+            providerInvocationCount.incrementAndGet();
+        })
+                .isInstanceOf(MissingPricingException.class)
+                .hasMessage("MISSING_PLAN")
+                .extracting(exception -> ((MissingPricingException) exception).getResolution())
+                .isEqualTo(PricingResolution.MISSING_PLAN);
+
+        assertThat(providerInvocationCount).hasValue(0);
+        verifyNoInteractions(pricingRegistry);
+        verifyNoInteractions(ledgerManager);
+    }
+
+    @Test
+    @DisplayName("FAIL_CLOSED는 provider 호출 전에 MISSING_RATE를 차단하고 invocation count를 0으로 유지해야 한다")
+    void failClosedBlocksMissingRateBeforeProviderCall() {
+        LedgerManager ledgerManager = mock(LedgerManager.class);
+        UsageExtractor extractor = mock(UsageExtractor.class);
+        PricingRegistry pricingRegistry = mock(PricingRegistry.class);
+        AtomicInteger providerInvocationCount = new AtomicInteger();
+        PricingPlan plan = new PricingPlan(
+                "prompt-only-model",
+                Map.of(TokenType.PROMPT, new BigDecimal("0.01")),
+                Currency.getInstance("USD")
+        );
+        PricingSnapshot snapshot = PricingSnapshot.from(
+                plan,
+                PricingSnapshot.DEFAULT_CATALOG_VERSION,
+                Instant.parse("2026-07-30T00:00:00Z")
+        );
+
+        when(pricingRegistry.resolveSnapshot("prompt-only-model", PricingPlan.DEFAULT_PRICING_POLICY_ID))
+                .thenReturn(Optional.of(snapshot));
+
+        DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(
+                ledgerManager,
+                extractor,
+                null,
+                null,
+                mock(CostCalculator.class),
+                pricingRegistry,
+                MissingPricingPolicy.FAIL_CLOSED
+        );
+        ChatClientRequest request = new ChatClientRequest(
+                new Prompt("test"),
+                Map.of(DefaultLedgerAdvisor.MODEL_ID_CONTEXT, "prompt-only-model")
+        );
+
+        assertThatThrownBy(() -> {
+            advisor.before(request, mock(AdvisorChain.class));
+            providerInvocationCount.incrementAndGet();
+        })
+                .isInstanceOf(MissingPricingException.class)
+                .hasMessage("MISSING_RATE")
+                .extracting(exception -> ((MissingPricingException) exception).getResolution())
+                .isEqualTo(PricingResolution.MISSING_RATE);
+
+        assertThat(providerInvocationCount).hasValue(0);
+        verify(pricingRegistry, times(1)).resolveSnapshot("prompt-only-model", PricingPlan.DEFAULT_PRICING_POLICY_ID);
+        verifyNoMoreInteractions(pricingRegistry);
+        verifyNoInteractions(ledgerManager);
     }
 
     @Test
@@ -293,6 +1051,15 @@ class DefaultLedgerAdvisorTest {
                 usage,
                 usd("100.00")
         );
+    }
+
+    private static ChatClientResponse response(String modelId, Map<String, Object> context) {
+        ChatResponseMetadata metadata = ChatResponseMetadata.builder().model(modelId).build();
+        ChatResponse chatResponse = new ChatResponse(
+                List.of(new Generation(new org.springframework.ai.chat.messages.AssistantMessage("test"))),
+                metadata
+        );
+        return new ChatClientResponse(chatResponse, context);
     }
 
     private static Cost usd(String amount) {
