@@ -614,6 +614,42 @@ tasks.withType(JavaCompile).configureEach {
 application {
     mainClass = 'compatibility.CoreConsumer'
 }
+
+def forbiddenCoreRuntimeGroups = [
+    'org.springframework',
+    'org.springframework.ai',
+    'io.micrometer',
+    'io.projectreactor'
+]
+
+tasks.register('verifyCoreRuntimeClasspath') {
+    group = 'verification'
+    description = 'Verifies that the published core artifact has no forbidden transitive runtime dependencies.'
+
+    doLast {
+        def forbiddenComponents = configurations.runtimeClasspath
+            .incoming
+            .resolutionResult
+            .allComponents
+            .findAll { component ->
+                def group = component.moduleVersion?.group
+                group != null && forbiddenCoreRuntimeGroups.any { forbiddenGroup ->
+                    group == forbiddenGroup || group.startsWith(forbiddenGroup + '.')
+                }
+            }
+
+        if (!forbiddenComponents.isEmpty()) {
+            throw new GradleException(
+                'token-pilot-core runtime classpath contains forbidden dependencies: ' +
+                    forbiddenComponents.collect { it.id.displayName }
+            )
+        }
+    }
+}
+
+tasks.named('run') {
+    dependsOn tasks.named('verifyCoreRuntimeClasspath')
+}
 """.stripIndent().trim() + System.lineSeparator()
 
         new File(sourceDirectory, 'CoreConsumer.java').text = """
