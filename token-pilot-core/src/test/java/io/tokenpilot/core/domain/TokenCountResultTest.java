@@ -23,7 +23,79 @@ class TokenCountResultTest {
                 TOKENIZATION_BASIS
         );
 
-        assertThat(result).isNotNull();
+        assertThat(result.isCounted()).isFalse();
+        assertThat(result.isUnavailable()).isTrue();
+        assertThat(result.isExact()).isFalse();
+        assertThat(result.tokens()).isEmpty();
+        assertThat(result.safeUpperBoundTokens()).isEmpty();
+        assertThat(result.accuracy()).isEmpty();
+        assertThat(result.unavailableReason())
+                .contains(TokenCountUnavailableReason.ESTIMATOR_UNAVAILABLE);
+        assertThat(result.scope()).isEqualTo(TokenCountScope.TEXT_ONLY);
+        assertThat(result.estimatorDescriptor()).isEqualTo(ESTIMATOR_DESCRIPTOR);
+        assertThat(result.tokenizationBasis()).isEqualTo(TOKENIZATION_BASIS);
+    }
+
+    @Test
+    @DisplayName("EXACT counted 결과는 계산값과 계산 기준을 제공한다")
+    void exposesExactCountedResult() {
+        TokenCountResult result = TokenCountResult.counted(
+                10L,
+                10L,
+                TokenCountAccuracy.EXACT,
+                TokenCountScope.REQUEST,
+                ESTIMATOR_DESCRIPTOR,
+                TOKENIZATION_BASIS
+        );
+
+        assertThat(result.isCounted()).isTrue();
+        assertThat(result.isUnavailable()).isFalse();
+        assertThat(result.isExact()).isTrue();
+        assertThat(result.tokens()).hasValue(10L);
+        assertThat(result.safeUpperBoundTokens()).hasValue(10L);
+        assertThat(result.accuracy()).contains(TokenCountAccuracy.EXACT);
+        assertThat(result.unavailableReason()).isEmpty();
+        assertThat(result.scope()).isEqualTo(TokenCountScope.REQUEST);
+        assertThat(result.estimatorDescriptor()).isEqualTo(ESTIMATOR_DESCRIPTOR);
+        assertThat(result.tokenizationBasis()).isEqualTo(TOKENIZATION_BASIS);
+    }
+
+    @Test
+    @DisplayName("HEURISTIC counted 결과는 계산값과 별도의 안전 상한을 제공한다")
+    void exposesHeuristicCountedResult() {
+        TokenCountResult result = TokenCountResult.counted(
+                10L,
+                12L,
+                TokenCountAccuracy.HEURISTIC,
+                TokenCountScope.TEXT_ONLY,
+                ESTIMATOR_DESCRIPTOR,
+                TOKENIZATION_BASIS
+        );
+
+        assertThat(result.isCounted()).isTrue();
+        assertThat(result.isExact()).isFalse();
+        assertThat(result.tokens()).hasValue(10L);
+        assertThat(result.safeUpperBoundTokens()).hasValue(12L);
+        assertThat(result.accuracy()).contains(TokenCountAccuracy.HEURISTIC);
+        assertThat(result.scope()).isEqualTo(TokenCountScope.TEXT_ONLY);
+    }
+
+    @Test
+    @DisplayName("정상적인 0-token 결과는 unavailable 결과가 아니다")
+    void distinguishesZeroTokenResultFromUnavailableResult() {
+        TokenCountResult result = TokenCountResult.counted(
+                0L,
+                0L,
+                TokenCountAccuracy.EXACT,
+                TokenCountScope.TEXT_ONLY,
+                ESTIMATOR_DESCRIPTOR,
+                TOKENIZATION_BASIS
+        );
+
+        assertThat(result.isCounted()).isTrue();
+        assertThat(result.isUnavailable()).isFalse();
+        assertThat(result.tokens()).hasValue(0L);
+        assertThat(result.safeUpperBoundTokens()).hasValue(0L);
     }
 
     @Test
