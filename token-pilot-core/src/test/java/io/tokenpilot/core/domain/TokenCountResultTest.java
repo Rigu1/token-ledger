@@ -111,6 +111,42 @@ class TokenCountResultTest {
     }
 
     @Test
+    @DisplayName("unavailable 결과의 scope는 null일 수 없다")
+    void rejectsNullUnavailableScope() {
+        assertThatThrownBy(() -> TokenCountResult.unavailable(
+                TokenCountUnavailableReason.ESTIMATOR_UNAVAILABLE,
+                null,
+                ESTIMATOR_DESCRIPTOR,
+                TOKENIZATION_BASIS
+        ))
+                .isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    @DisplayName("unavailable 결과의 estimator descriptor는 null일 수 없다")
+    void rejectsNullUnavailableEstimatorDescriptor() {
+        assertThatThrownBy(() -> TokenCountResult.unavailable(
+                TokenCountUnavailableReason.ESTIMATOR_UNAVAILABLE,
+                TokenCountScope.TEXT_ONLY,
+                null,
+                TOKENIZATION_BASIS
+        ))
+                .isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    @DisplayName("unavailable 결과의 tokenization basis는 null일 수 없다")
+    void rejectsNullUnavailableTokenizationBasis() {
+        assertThatThrownBy(() -> TokenCountResult.unavailable(
+                TokenCountUnavailableReason.ESTIMATOR_UNAVAILABLE,
+                TokenCountScope.TEXT_ONLY,
+                ESTIMATOR_DESCRIPTOR,
+                null
+        ))
+                .isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
     @DisplayName("EXACT counted 결과는 계산값과 안전 상한이 다르면 생성할 수 없다")
     void rejectsExactCountedResultWhenTokensDifferFromSafeUpperBound() {
         assertThatThrownBy(() -> TokenCountResult.counted(
