@@ -6,6 +6,7 @@ import io.tokenpilot.core.LedgerManager;
 import io.tokenpilot.core.PricingEvaluator;
 import io.tokenpilot.core.PricingProvider;
 import io.tokenpilot.core.PricingRegistry;
+import io.tokenpilot.core.TokenEstimator;
 
 import java.util.List;
 
@@ -23,6 +24,11 @@ public final class LedgerComponents {
 
     public static PricingEvaluator defaultPricingEvaluator() {
         return new DefaultPricingEvaluator();
+    }
+
+
+    public static TokenEstimator utf8ByteHeuristicTokenEstimator() {
+        return new HeuristicTokenEstimator();
     }
 
     public static PricingRegistry inMemoryPricingRegistry(List<PricingProvider> providers) {
