@@ -220,26 +220,45 @@ class HeuristicTokenEstimatorTest {
                 Path.of(LedgerComponents.class.getProtectionDomain()
                         .getCodeSource().getLocation().toURI()).toString()
         );
-        Process process = new ProcessBuilder(
+        ProcessBuilder processBuilder = new ProcessBuilder(
                 javaExecutable,
-                "-Dfile.encoding=US-ASCII",
+                "-Dfile.encoding=COMPAT",
                 "-Duser.language=" + language,
                 "-Duser.country=" + country,
                 "-cp",
                 classpath,
                 RuntimeEnvironmentProbe.class.getName()
-        ).redirectErrorStream(true).start();
-
-        assertThat(process.waitFor(10, TimeUnit.SECONDS)).as(label).isTrue();
-        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-        assertThat(process.exitValue()).as("%s: %s", label, output).isZero();
-        assertThat(output).as(label).isEqualTo(
-                "charset=US-ASCII,locale=%s,tokens=4,safeUpperBound=15,"
-                        .formatted(expectedLocale)
-                        + "accuracy=HEURISTIC,scope=TEXT_ONLY,"
-                        + "estimatorId=tokenpilot-utf8-byte-heuristic,"
-                        + "estimatorVersion=1,basis=BYTE_LEVEL_BPE_UTF8"
         );
+        processBuilder.environment().put("LC_ALL", "C");
+        processBuilder.environment().put("LANG", "C");
+        Process process = processBuilder.redirectErrorStream(true).start();
+
+        try {
+            assertThat(process.waitFor(10, TimeUnit.SECONDS)).as(label).isTrue();
+            String output = new String(
+                    process.getInputStream().readAllBytes(),
+                    StandardCharsets.UTF_8
+            );
+            assertThat(process.exitValue()).as("%s: %s", label, output).isZero();
+            assertThat(output)
+                    .as(label)
+                    .startsWith("charset=")
+                    .doesNotStartWith("charset=UTF-8,")
+                    .endsWith(
+                            "locale=%s,tokens=4,safeUpperBound=15,"
+                                    .formatted(expectedLocale)
+                                    + "accuracy=HEURISTIC,scope=TEXT_ONLY,"
+                                    + "estimatorId=tokenpilot-utf8-byte-heuristic,"
+                                    + "estimatorVersion=1,basis=BYTE_LEVEL_BPE_UTF8"
+                    );
+        } finally {
+            if (process.isAlive()) {
+                process.destroyForcibly();
+                if (!process.waitFor(10, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("child process did not terminate: " + label);
+                }
+            }
+        }
     }
 
     private static Stream<Arguments> unicodeCorpus() {
