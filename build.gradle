@@ -655,11 +655,15 @@ tasks.named('run') {
         new File(sourceDirectory, 'CoreConsumer.java').text = """
 package compatibility;
 
+import io.tokenpilot.core.CoreComponents;
+import io.tokenpilot.core.TokenBudget;
 import io.tokenpilot.core.TokenEstimator;
+import io.tokenpilot.core.domain.AdmissionReason;
+import io.tokenpilot.core.domain.AdmissionStatus;
+import io.tokenpilot.core.domain.BudgetResult;
 import io.tokenpilot.core.domain.Cost;
 import io.tokenpilot.core.domain.TokenCountResult;
 import io.tokenpilot.core.domain.TokenCountScope;
-import io.tokenpilot.core.internal.LedgerComponents;
 import java.math.BigDecimal;
 import java.util.Currency;
 
@@ -673,7 +677,8 @@ public final class CoreConsumer {
             throw new IllegalStateException("Token Pilot core consumer verification failed");
         }
 
-        TokenEstimator estimator = LedgerComponents.utf8ByteHeuristicTokenEstimator();
+        TokenEstimator estimator = CoreComponents.utf8ByteHeuristicTokenEstimator();
+        TokenBudget tokenBudget = CoreComponents.tokenBudget(CoreComponents.defaultModelRegistry());
         TokenCountResult actual = estimator.estimate("hello");
         if (!actual.isCounted()
                 || actual.isExact()
@@ -682,6 +687,41 @@ public final class CoreConsumer {
                 || actual.scope() != TokenCountScope.TEXT_ONLY) {
             throw new IllegalStateException("Token Pilot estimator consumer verification failed");
         }
+
+        BudgetResult incomplete = tokenBudget.check("gpt-4o-mini", actual, 0);
+        if (incomplete.status() != AdmissionStatus.INDETERMINATE
+                || incomplete.reason() != AdmissionReason.INCOMPLETE_SCOPE
+                || incomplete.fits()
+                || !incomplete.canonicalModelId().orElseThrow()
+                    .equals("gpt-4o-mini-2024-07-18")
+                || !incomplete.estimatorDescriptor().estimatorId()
+                    .equals("tokenpilot-utf8-byte-heuristic")
+                || !incomplete.estimatorDescriptor().estimatorVersion().equals("1")
+                || !incomplete.tokenizationBasis().id().equals("BYTE_LEVEL_BPE_UTF8")) {
+            throw new IllegalStateException("Token Pilot preflight consumer verification failed");
+        }
+
+        TokenCountResult huge = estimator.estimate("x".repeat(512_004));
+        BudgetResult exceeds = tokenBudget.check("gpt-4o-mini", huge, 0);
+        if (exceeds.status() != AdmissionStatus.EXCEEDS
+                || exceeds.reason() != AdmissionReason.CONTEXT_EXCEEDED
+                || exceeds.fits()) {
+            throw new IllegalStateException("Token Pilot context consumer verification failed");
+        }
+
+        BudgetResult reservedExceeds = tokenBudget.check("gpt-4o-mini", actual, 127_996);
+        if (reservedExceeds.status() != AdmissionStatus.EXCEEDS
+                || reservedExceeds.reason() != AdmissionReason.CONTEXT_EXCEEDED) {
+            throw new IllegalStateException("Token Pilot reserved output verification failed");
+        }
+
+        System.out.println("short model=" + incomplete.canonicalModelId().orElseThrow()
+                + " estimator=" + incomplete.estimatorDescriptor().estimatorId()
+                + "/" + incomplete.estimatorDescriptor().estimatorVersion()
+                + " compatibility=" + incomplete.tokenizationBasis().id()
+                + " reason=" + incomplete.reason());
+        System.out.println("huge input status=" + exceeds.status()
+                + " reason=" + exceeds.reason());
         System.out.println("token-pilot-core Java 25 consumer OK");
     }
 }
