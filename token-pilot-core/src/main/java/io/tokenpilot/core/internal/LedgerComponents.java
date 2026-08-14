@@ -8,6 +8,7 @@ import io.tokenpilot.core.PricingEvaluator;
 import io.tokenpilot.core.PricingProvider;
 import io.tokenpilot.core.PricingRegistry;
 import io.tokenpilot.core.PreflightCostEstimator;
+import io.tokenpilot.core.TokenBudget;
 import io.tokenpilot.core.TokenEstimator;
 import io.tokenpilot.core.domain.ModelDefinition;
 
@@ -50,6 +51,16 @@ public final class LedgerComponents {
      */
     public static TokenEstimator utf8ByteHeuristicTokenEstimator() {
         return new HeuristicTokenEstimator();
+    }
+
+    /**
+     * model registry를 사용하는 context admission evaluator를 생성합니다.
+     *
+     * @param modelRegistry versioned model catalog
+     * @return token context budget evaluator
+     */
+    public static TokenBudget tokenBudget(ModelRegistry modelRegistry) {
+        return new DefaultTokenBudget(modelRegistry);
     }
 
     /**

@@ -4,7 +4,7 @@
 
 Token Pilot is evolving from a Spring AI usage-tracking starter into a framework-independent Java LLM control and accounting core with optional framework and observability adapters.
 
-Current truth: post-call usage normalization, cost calculation, ledger events, Micrometer publishing, Clock-based monthly budget windows, pure budget decisions, typed missing-pricing policies, pricing snapshots, framework-independent token count results, a UTF-8 byte heuristic estimator, and a preflight cost-bound projection are implemented. Candidate-aware request production, context admission, atomic reservation, and estimate/actual cost reconciliation are 30-day MVP targets, not current capabilities.
+Current truth: post-call usage normalization, cost calculation, ledger events, Micrometer publishing, Clock-based monthly budget windows, pure budget decisions, typed missing-pricing policies, pricing snapshots, framework-independent token count results, a UTF-8 byte heuristic estimator, a preflight cost-bound projection, versioned model metadata, and conservative context admission are implemented. Candidate-aware request production, atomic reservation, and estimate/actual cost reconciliation are 30-day MVP targets, not current capabilities.
 
 Distribution direction: publish a framework-independent core and an optional Spring AI convenience starter from the same repository and release train. The existing starter artifact is `token-pilot-starter`; `token-pilot-spring-ai-starter` is only a target name until a compatibility ADR and module change land.
 
@@ -71,7 +71,7 @@ Token Pilot의 제품 포지션은 framework-independent Java LLM control and ac
 
 | Module | Status | Notes |
 | --- | --- | --- |
-| `token-pilot-core` | Basic implementation complete | Domain records, pricing, calculator, registry, ledger manager, pricing snapshots, versioned model catalog, token count results, UTF-8 byte heuristic estimation, and a preflight cost-bound projection; context admission is still required before reservation |
+| `token-pilot-core` | Basic implementation complete | Domain records, pricing, calculator, registry, ledger manager, pricing snapshots, versioned model catalog, token count results, UTF-8 byte heuristic estimation, preflight cost-bound projection, and conservative context admission; atomic reservation and reconciliation are still required |
 | `token-pilot-spring-ai` | Basic implementation complete | Spring AI 2.0.0 `UsageExtractor`, `LedgerAdvisor`, pricing snapshot resolution, response usage recording, reconciliation decisions, and legacy provider-boundary BLOCK enforcement |
 | `token-pilot-micrometer` | Basic implementation complete | `MetricsOptions`, tag whitelist, and metric metadata exist; metric ownership must be narrowed |
 | `token-pilot-budget` | Basic non-atomic implementation | Typed monthly keys, Clock/ZoneId windows, and pure status/admission decisions implemented; needs candidate estimation, reservation, idempotency, and reconciliation |
@@ -336,7 +336,7 @@ The active checklist is in `docs/30_DAY_MVP_REPORT.md`; detailed long-term works
 - `token-pilot-spring-ai-starter` does not exist in the current build; never use it as an install instruction until implemented and published.
 - Maven Central release consumption must be re-verified for both core and starter paths before announcing `0.1.0`.
 - Preflight cost bounds must use one immutable pricing snapshot from calculation through reservation and reconciliation; resolving a mutable registry again by model/policy identifiers can mix prices from different requests.
-- A preflight cost bound is not context admission evidence. The REQUEST token result and reserved output must be checked against the versioned model context window before a provider call or reservation is authorized.
+- A preflight cost bound alone is not context admission evidence. The REQUEST token result and reserved output must also pass `TokenBudget` against the versioned model context before a provider call or reservation is authorized.
 - `DefaultPreflightCostEstimator` currently relies on the existing exclusive `TokenType` pricing shape; richer pricing combinations and finite/unbounded policy capabilities must be owned by a validated pricing policy snapshot rather than caller-supplied flags.
 - The UTF-8 byte heuristic estimator returns `TEXT_ONLY` and uses `BYTE_LEVEL_BPE_UTF8` only as a byte-level safety-basis identifier; it is not an exact BPE implementation and must not be used as full-request admission evidence.
 
@@ -403,6 +403,7 @@ Stage and deploy a Central release:
 ### 2026-08-14
 
 - Added the immutable versioned `ModelRegistry`/`ModelDefinition` catalog, canonical alias lookup, pricing-policy and currency binding, and the minimal official-source model catalog.
+- Added `TokenBudget.check()` with overflow-safe context admission, explicit FITS/EXCEEDS/INDETERMINATE results, tokenizer compatibility checks, and fail-closed `requireFits()` behavior.
 
 ### 2026-08-10
 
