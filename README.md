@@ -56,6 +56,39 @@ policy, and Spring Boot autoconfiguration. The MVP is extending this foundation
 with preflight control, atomic budget reservation, and actual usage
 reconciliation.
 
+## Framework-independent core
+
+Applications that do not use Spring can depend on `token-pilot-core` alone:
+
+```gradle
+dependencies {
+    implementation 'cloud.token-pilot:token-pilot-core:<version>'
+}
+```
+
+```java
+import io.tokenpilot.core.CoreComponents;
+import io.tokenpilot.core.TokenBudget;
+import io.tokenpilot.core.TokenEstimator;
+import io.tokenpilot.core.domain.BudgetResult;
+import io.tokenpilot.core.domain.TokenCountResult;
+
+TokenEstimator estimator = CoreComponents.utf8ByteHeuristicTokenEstimator();
+TokenBudget budget = CoreComponents.tokenBudget(CoreComponents.defaultModelRegistry());
+TokenCountResult input = estimator.estimate("hello");
+BudgetResult result = budget.check("gpt-4o-mini", input, 0);
+
+System.out.println(result.canonicalModelId().orElseThrow());
+System.out.println(result.estimatorDescriptor());
+System.out.println(result.tokenizationBasis());
+System.out.println(result.reason()); // INCOMPLETE_SCOPE for TEXT_ONLY
+```
+
+The UTF-8 estimator is intentionally `TEXT_ONLY` and heuristic. It can report
+`INDETERMINATE` for a short text input; a safe upper bound that exceeds the
+model context is reported as `EXCEEDS`. The core artifact has no Spring,
+Micrometer, or Reactor runtime dependency.
+
 ## 0.1.0 Compatibility Baseline
 
 The 0.1.0 target supports one explicit runtime combination:
