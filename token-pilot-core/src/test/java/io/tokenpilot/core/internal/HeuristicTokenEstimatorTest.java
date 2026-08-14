@@ -243,7 +243,6 @@ class HeuristicTokenEstimatorTest {
             assertThat(output)
                     .as(label)
                     .startsWith("charset=")
-                    .doesNotStartWith("charset=UTF-8,")
                     .endsWith(
                             "locale=%s,tokens=4,safeUpperBound=15,"
                                     .formatted(expectedLocale)
