@@ -71,7 +71,7 @@ Token Pilot의 제품 포지션은 framework-independent Java LLM control and ac
 
 | Module | Status | Notes |
 | --- | --- | --- |
-| `token-pilot-core` | Basic implementation complete | Domain records, pricing, calculator, registry, ledger manager, pricing snapshots, token count results, UTF-8 byte heuristic estimation, and a preflight cost-bound projection; versioned model snapshots and context admission are still required before reservation |
+| `token-pilot-core` | Basic implementation complete | Domain records, pricing, calculator, registry, ledger manager, pricing snapshots, versioned model catalog, token count results, UTF-8 byte heuristic estimation, and a preflight cost-bound projection; context admission is still required before reservation |
 | `token-pilot-spring-ai` | Basic implementation complete | Spring AI 2.0.0 `UsageExtractor`, `LedgerAdvisor`, pricing snapshot resolution, response usage recording, reconciliation decisions, and legacy provider-boundary BLOCK enforcement |
 | `token-pilot-micrometer` | Basic implementation complete | `MetricsOptions`, tag whitelist, and metric metadata exist; metric ownership must be narrowed |
 | `token-pilot-budget` | Basic non-atomic implementation | Typed monthly keys, Clock/ZoneId windows, and pure status/admission decisions implemented; needs candidate estimation, reservation, idempotency, and reconciliation |
@@ -399,6 +399,10 @@ Stage and deploy a Central release:
 ```
 
 ## Update History
+
+### 2026-08-14
+
+- Added the immutable versioned `ModelRegistry`/`ModelDefinition` catalog, canonical alias lookup, pricing-policy and currency binding, and the minimal official-source model catalog.
 
 ### 2026-08-10
 
