@@ -3,12 +3,15 @@ package io.tokenpilot.core.internal;
 import io.tokenpilot.core.CostCalculator;
 import io.tokenpilot.core.LedgerListener;
 import io.tokenpilot.core.LedgerManager;
+import io.tokenpilot.core.ModelRegistry;
 import io.tokenpilot.core.PricingEvaluator;
 import io.tokenpilot.core.PricingProvider;
 import io.tokenpilot.core.PricingRegistry;
 import io.tokenpilot.core.PreflightCostEstimator;
 import io.tokenpilot.core.TokenEstimator;
+import io.tokenpilot.core.domain.ModelDefinition;
 
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -47,6 +50,25 @@ public final class LedgerComponents {
      */
     public static TokenEstimator utf8ByteHeuristicTokenEstimator() {
         return new HeuristicTokenEstimator();
+    }
+
+    /**
+     * 등록할 model definition으로 in-memory model registry를 생성합니다.
+     *
+     * @param definitions immutable model catalog 정의
+     * @return in-memory model registry
+     */
+    public static ModelRegistry inMemoryModelRegistry(Collection<ModelDefinition> definitions) {
+        return new InMemoryModelRegistry(definitions);
+    }
+
+    /**
+     * 공개 문서의 확인 시점과 encoding metadata를 고정한 최소 기본 catalog를 생성합니다.
+     *
+     * @return gpt-4o와 gpt-4o-mini versioned catalog
+     */
+    public static ModelRegistry defaultModelRegistry() {
+        return inMemoryModelRegistry(DefaultModelCatalog.definitions());
     }
 
     public static PricingRegistry inMemoryPricingRegistry(List<PricingProvider> providers) {
