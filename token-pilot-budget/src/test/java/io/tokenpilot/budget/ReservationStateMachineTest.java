@@ -59,6 +59,16 @@ class ReservationStateMachineTest {
     }
 
     @Test
+    @DisplayName("provider가 미과금을 확인하면 진행 중인 예약을 해제한다")
+    void releasesInFlightReservationAfterNoChargeIsConfirmed() {
+        var transition = ReservationStateMachine.releaseConfirmedUnbilled(IN_FLIGHT);
+
+        assertThat(transition.previousState()).isEqualTo(IN_FLIGHT);
+        assertThat(transition.resultingState()).isEqualTo(RELEASED);
+        assertThat(transition.status()).isEqualTo(APPLIED);
+    }
+
+    @Test
     @DisplayName("호출 후 actual을 전달해 commit하면 비용이 확정된다")
     void commitsInFlightReservationWithActual() {
         var transition = ReservationStateMachine.commit(IN_FLIGHT);

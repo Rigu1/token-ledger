@@ -28,6 +28,17 @@ public final class ReservationStateMachine {
         );
     }
 
+    /** 공급자가 미과금을 확인한 진행 중 예약을 해제합니다. */
+    public static ReservationTransition releaseConfirmedUnbilled(
+            ReservationState currentState
+    ) {
+        return transitionFrom(
+                currentState,
+                ReservationState.IN_FLIGHT,
+                ReservationState.RELEASED
+        );
+    }
+
     /** 전달받은 actual을 확정하기 위한 상태 전이를 판단합니다. */
     public static ReservationTransition commit(ReservationState currentState) {
         return transitionFrom(
