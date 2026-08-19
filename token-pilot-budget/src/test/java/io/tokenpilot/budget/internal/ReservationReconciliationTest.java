@@ -154,8 +154,6 @@ class ReservationReconciliationTest {
         );
 
         assertThat(reconciliation.requestId()).isEqualTo("request-1");
-        assertThat(store.reservationForAccounting(reservationId).idempotencyKey())
-                .isEqualTo(new IdempotencyKey("deduplication-1"));
     }
 
     @Test

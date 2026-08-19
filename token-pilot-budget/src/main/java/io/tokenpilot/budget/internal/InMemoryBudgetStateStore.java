@@ -16,6 +16,7 @@ import io.tokenpilot.budget.ReservationStateMachine;
 import io.tokenpilot.budget.ReservationTransition;
 import io.tokenpilot.core.CostCalculator;
 import io.tokenpilot.core.domain.Cost;
+import io.tokenpilot.core.domain.PricingSnapshot;
 import io.tokenpilot.core.internal.LedgerComponents;
 
 import java.time.Clock;
@@ -26,6 +27,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiFunction;
 import java.util.function.Supplier;
 
 /**
@@ -43,7 +45,7 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
             new ConcurrentHashMap<>();
     private final Clock clock;
     private final Supplier<ReservationId> reservationIdGenerator;
-    private final ReservationUsageAccounting usageAccounting;
+    private final CostCalculator costCalculator;
 
     public InMemoryBudgetStateStore() {
         this(
@@ -74,8 +76,9 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
                 reservationIdGenerator,
                 "reservationIdGenerator must not be null"
         );
-        this.usageAccounting = new ReservationUsageAccounting(
-                Objects.requireNonNull(costCalculator, "costCalculator must not be null")
+        this.costCalculator = Objects.requireNonNull(
+                costCalculator,
+                "costCalculator must not be null"
         );
     }
 
@@ -208,10 +211,8 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
 
     @Override
     public ReservationReconciliation commit(ActualUsageCommand command) {
-        Objects.requireNonNull(command, "command must not be null");
-        return usageAccounting.commit(
+        return reconcileUsage(
                 command,
-                reservationForAccounting(command.reservationId()),
                 this::commitCost
         );
     }
@@ -270,10 +271,8 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
 
     @Override
     public ReservationReconciliation reconcileLateActual(ActualUsageCommand command) {
-        Objects.requireNonNull(command, "command must not be null");
-        return usageAccounting.reconcileLateActual(
+        return reconcileUsage(
                 command,
-                reservationForAccounting(command.reservationId()),
                 this::reconcileLateActualCost
         );
     }
@@ -327,7 +326,74 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
         }
     }
 
-    BudgetReservation reservationForAccounting(ReservationId reservationId) {
+    private ReservationReconciliation reconcileUsage(
+            ActualUsageCommand command,
+            BiFunction<ReservationId, Cost, ReservationTransition> transition
+    ) {
+        Objects.requireNonNull(command, "command must not be null");
+        Objects.requireNonNull(transition, "transition must not be null");
+        BudgetReservation reservation = reservationForAccounting(
+                command.reservationId()
+        );
+        if (!reservation.belongsTo(command.requestId())) {
+            throw new IllegalArgumentException(
+                    "requestId must match the reservation request"
+            );
+        }
+
+        PricingSnapshot snapshot = reservation.pricingSnapshot().orElseThrow(
+                () -> new IllegalStateException(
+                        "reservation does not contain a pricing snapshot"
+                )
+        );
+        Cost actualCost = calculateActualCost(command, snapshot);
+        ReservationTransition appliedTransition = transition.apply(
+                reservation.id(),
+                actualCost
+        );
+        return reconciliation(
+                command,
+                reservation,
+                snapshot,
+                actualCost,
+                appliedTransition
+        );
+    }
+
+    private Cost calculateActualCost(
+            ActualUsageCommand command,
+            PricingSnapshot snapshot
+    ) {
+        Cost actualCost = costCalculator.calculate(command.usage(), snapshot);
+        if (!snapshot.currency().equals(actualCost.currency())) {
+            throw new IllegalStateException(
+                    "calculated cost must use the pricing snapshot currency"
+            );
+        }
+        return actualCost;
+    }
+
+    private static ReservationReconciliation reconciliation(
+            ActualUsageCommand command,
+            BudgetReservation reservation,
+            PricingSnapshot snapshot,
+            Cost actualCost,
+            ReservationTransition transition
+    ) {
+        return new ReservationReconciliation(
+                command.requestId(),
+                command.attemptId(),
+                reservation.id(),
+                reservation.key(),
+                command.responseModelId(),
+                snapshot,
+                reservation.amount(),
+                actualCost,
+                transition
+        );
+    }
+
+    private BudgetReservation reservationForAccounting(ReservationId reservationId) {
         Bucket bucket = bucketFor(reservationId);
         synchronized (bucket) {
             return accountingState(bucket, reservationId).reservation();
