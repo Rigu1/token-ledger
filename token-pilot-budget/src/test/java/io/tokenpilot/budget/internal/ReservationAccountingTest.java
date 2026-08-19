@@ -52,7 +52,7 @@ class ReservationAccountingTest {
         store.addCost(KEY, LIMIT, usd("10.00"));
 
         assertThatThrownBy(
-                () -> store.commit(new ReservationId("missing"), usd("40.00"))
+                () -> store.commitCost(new ReservationId("missing"), usd("40.00"))
         ).isInstanceOf(IllegalArgumentException.class);
 
         BudgetSnapshot snapshot = store.snapshot(KEY, LIMIT);
@@ -70,10 +70,10 @@ class ReservationAccountingTest {
                 reusedStore,
                 usd("60.00")
         );
-        reusedStore.commit(reusedReservation, usd("40.00"));
+        reusedStore.commitCost(reusedReservation, usd("40.00"));
         BudgetSnapshot beforeReused = reusedStore.snapshot(KEY, LIMIT);
 
-        ReservationTransition reused = reusedStore.commit(
+        ReservationTransition reused = reusedStore.commitCost(
                 reusedReservation,
                 usd("40.00")
         );
@@ -87,10 +87,10 @@ class ReservationAccountingTest {
                 conflictStore,
                 usd("60.00")
         );
-        conflictStore.commit(conflictReservation, usd("40.00"));
+        conflictStore.commitCost(conflictReservation, usd("40.00"));
         BudgetSnapshot beforeConflict = conflictStore.snapshot(KEY, LIMIT);
 
-        ReservationTransition conflict = conflictStore.commit(
+        ReservationTransition conflict = conflictStore.commitCost(
                 conflictReservation,
                 usd("50.00")
         );
@@ -121,7 +121,7 @@ class ReservationAccountingTest {
         );
         BudgetSnapshot beforeMismatch = mismatchStore.snapshot(KEY, LIMIT);
 
-        ReservationTransition mismatch = mismatchStore.commit(
+        ReservationTransition mismatch = mismatchStore.commitCost(
                 mismatchReservation,
                 Cost.of(new BigDecimal("40.00"), Currency.getInstance("KRW"))
         );
@@ -136,7 +136,7 @@ class ReservationAccountingTest {
         InMemoryBudgetStateStore store = store();
         ReservationId reservationId = reserveInFlight(store, store, usd("60.00"));
 
-        ReservationTransition transition = store.commit(reservationId, usd("40.00"));
+        ReservationTransition transition = store.commitCost(reservationId, usd("40.00"));
 
         assertThat(transition)
                 .isEqualTo(ReservationTransition.applied(IN_FLIGHT, COMMITTED));
@@ -151,7 +151,7 @@ class ReservationAccountingTest {
         InMemoryBudgetStateStore store = store();
         ReservationId reservationId = reserveInFlight(store, store, usd("60.00"));
 
-        ReservationTransition transition = store.commit(reservationId, usd("60.00"));
+        ReservationTransition transition = store.commitCost(reservationId, usd("60.00"));
 
         assertThat(transition)
                 .isEqualTo(ReservationTransition.applied(IN_FLIGHT, COMMITTED));
@@ -167,7 +167,7 @@ class ReservationAccountingTest {
         InMemoryBudgetStateStore store = store();
         ReservationId reservationId = reserveInFlight(store, store, usd("60.00"));
 
-        ReservationTransition transition = store.commit(reservationId, usd("80.00"));
+        ReservationTransition transition = store.commitCost(reservationId, usd("80.00"));
 
         assertThat(transition)
                 .isEqualTo(ReservationTransition.applied(IN_FLIGHT, COMMITTED));
@@ -182,7 +182,7 @@ class ReservationAccountingTest {
         InMemoryBudgetStateStore store = store();
         ReservationId reservationId = reserveInFlight(store, store, usd("60.00"));
 
-        ReservationTransition transition = store.commit(
+        ReservationTransition transition = store.commitCost(
                 reservationId,
                 Cost.of(new BigDecimal("40.00"), Currency.getInstance("KRW"))
         );
@@ -200,9 +200,9 @@ class ReservationAccountingTest {
     void reusesCommitWhenActualIsUnchanged() {
         InMemoryBudgetStateStore store = store();
         ReservationId reservationId = reserveInFlight(store, store, usd("60.00"));
-        store.commit(reservationId, usd("40.00"));
+        store.commitCost(reservationId, usd("40.00"));
 
-        ReservationTransition transition = store.commit(reservationId, usd("40.00"));
+        ReservationTransition transition = store.commitCost(reservationId, usd("40.00"));
 
         assertThat(transition).isEqualTo(
                 ReservationTransition.unchanged(COMMITTED, REUSED)
@@ -218,9 +218,9 @@ class ReservationAccountingTest {
     void rejectsCommitWhenActualHasChanged() {
         InMemoryBudgetStateStore store = store();
         ReservationId reservationId = reserveInFlight(store, store, usd("60.00"));
-        store.commit(reservationId, usd("40.00"));
+        store.commitCost(reservationId, usd("40.00"));
 
-        ReservationTransition transition = store.commit(reservationId, usd("50.00"));
+        ReservationTransition transition = store.commitCost(reservationId, usd("50.00"));
 
         assertThat(transition).isEqualTo(
                 ReservationTransition.unchanged(COMMITTED, CONFLICT)
@@ -236,7 +236,7 @@ class ReservationAccountingTest {
     void rejectsReleaseAfterCommit() {
         InMemoryBudgetStateStore store = store();
         ReservationId reservationId = reserveInFlight(store, store, usd("60.00"));
-        store.commit(reservationId, usd("40.00"));
+        store.commitCost(reservationId, usd("40.00"));
 
         ReservationTransition transition = store.releaseConfirmedUnbilled(reservationId);
 
@@ -254,7 +254,7 @@ class ReservationAccountingTest {
     void rejectsPreDispatchReleaseAfterCommit() {
         InMemoryBudgetStateStore store = store();
         ReservationId reservationId = reserveInFlight(store, store, usd("60.00"));
-        store.commit(reservationId, usd("40.00"));
+        store.commitCost(reservationId, usd("40.00"));
 
         ReservationTransition transition = store.releaseBeforeDispatch(reservationId);
 
@@ -274,7 +274,7 @@ class ReservationAccountingTest {
         ReservationId reservationId = reserveInFlight(store, store, usd("60.00"));
         store.releaseConfirmedUnbilled(reservationId);
 
-        ReservationTransition transition = store.commit(reservationId, usd("40.00"));
+        ReservationTransition transition = store.commitCost(reservationId, usd("40.00"));
 
         assertThat(transition).isEqualTo(
                 ReservationTransition.unchanged(RELEASED, CONFLICT)
@@ -317,7 +317,7 @@ class ReservationAccountingTest {
                 usd("60.00")
         );
 
-        ReservationTransition zeroActualTransition = zeroActualStore.commit(
+        ReservationTransition zeroActualTransition = zeroActualStore.commitCost(
                 zeroActualReservation,
                 usd("0.00")
         );
@@ -350,7 +350,7 @@ class ReservationAccountingTest {
         ReservationId reservationId = reserveInFlight(store, store, usd("60.00"));
         store.markReconciliationRequired(reservationId);
 
-        ReservationTransition transition = store.reconcileLateActual(
+        ReservationTransition transition = store.reconcileLateActualCost(
                 reservationId,
                 usd("40.00")
         );
@@ -370,7 +370,7 @@ class ReservationAccountingTest {
         ReservationId reservationId = reserveInFlight(store, store, usd("60.00"));
         store.markReconciliationRequired(reservationId);
 
-        ReservationTransition transition = store.reconcileLateActual(
+        ReservationTransition transition = store.reconcileLateActualCost(
                 reservationId,
                 Cost.of(new BigDecimal("40.00"), Currency.getInstance("KRW"))
         );
@@ -392,9 +392,9 @@ class ReservationAccountingTest {
         InMemoryBudgetStateStore store = store();
         ReservationId reservationId = reserveInFlight(store, store, usd("60.00"));
         store.markReconciliationRequired(reservationId);
-        store.reconcileLateActual(reservationId, usd("40.00"));
+        store.reconcileLateActualCost(reservationId, usd("40.00"));
 
-        ReservationTransition transition = store.reconcileLateActual(
+        ReservationTransition transition = store.reconcileLateActualCost(
                 reservationId,
                 usd("40.00")
         );
@@ -414,9 +414,9 @@ class ReservationAccountingTest {
         InMemoryBudgetStateStore store = store();
         ReservationId reservationId = reserveInFlight(store, store, usd("60.00"));
         store.markReconciliationRequired(reservationId);
-        store.reconcileLateActual(reservationId, usd("40.00"));
+        store.reconcileLateActualCost(reservationId, usd("40.00"));
 
-        ReservationTransition transition = store.reconcileLateActual(
+        ReservationTransition transition = store.reconcileLateActualCost(
                 reservationId,
                 usd("50.00")
         );
@@ -436,9 +436,9 @@ class ReservationAccountingTest {
         InMemoryBudgetStateStore store = store();
         ReservationId reservationId = reserveInFlight(store, store, usd("60.00"));
         store.markReconciliationRequired(reservationId);
-        store.reconcileLateActual(reservationId, usd("40.00"));
+        store.reconcileLateActualCost(reservationId, usd("40.00"));
 
-        ReservationTransition transition = store.commit(reservationId, usd("40.00"));
+        ReservationTransition transition = store.commitCost(reservationId, usd("40.00"));
 
         assertThat(transition).isEqualTo(
                 ReservationTransition.unchanged(COMMITTED, CONFLICT)
@@ -454,9 +454,9 @@ class ReservationAccountingTest {
     void rejectsLateActualAfterDirectCommit() {
         InMemoryBudgetStateStore store = store();
         ReservationId reservationId = reserveInFlight(store, store, usd("60.00"));
-        store.commit(reservationId, usd("40.00"));
+        store.commitCost(reservationId, usd("40.00"));
 
-        ReservationTransition transition = store.reconcileLateActual(
+        ReservationTransition transition = store.reconcileLateActualCost(
                 reservationId,
                 usd("40.00")
         );
@@ -621,7 +621,7 @@ class ReservationAccountingTest {
         store.markReconciliationRequired(reservationId);
         store.writeOff(reservationId);
 
-        ReservationTransition transition = store.reconcileLateActual(
+        ReservationTransition transition = store.reconcileLateActualCost(
                 reservationId,
                 usd("40.00")
         );
@@ -641,7 +641,7 @@ class ReservationAccountingTest {
         InMemoryBudgetStateStore store = store();
         ReservationId reservationId = reserveInFlight(store, store, usd("60.00"));
         store.markReconciliationRequired(reservationId);
-        store.reconcileLateActual(reservationId, usd("40.00"));
+        store.reconcileLateActualCost(reservationId, usd("40.00"));
 
         ReservationTransition transition = store.writeOff(reservationId);
 

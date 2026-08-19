@@ -1,5 +1,6 @@
 package io.tokenpilot.budget.internal;
 
+import io.tokenpilot.budget.ActualUsageCommand;
 import io.tokenpilot.budget.BudgetKey;
 import io.tokenpilot.budget.BudgetReservation;
 import io.tokenpilot.budget.BudgetReservationRequest;
@@ -9,10 +10,13 @@ import io.tokenpilot.budget.BudgetStateStore;
 import io.tokenpilot.budget.IdempotencyKey;
 import io.tokenpilot.budget.ReservationAccounting;
 import io.tokenpilot.budget.ReservationId;
+import io.tokenpilot.budget.ReservationReconciliation;
 import io.tokenpilot.budget.ReservationState;
 import io.tokenpilot.budget.ReservationStateMachine;
 import io.tokenpilot.budget.ReservationTransition;
+import io.tokenpilot.core.CostCalculator;
 import io.tokenpilot.core.domain.Cost;
+import io.tokenpilot.core.internal.LedgerComponents;
 
 import java.time.Clock;
 import java.util.LinkedHashMap;
@@ -39,19 +43,39 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
             new ConcurrentHashMap<>();
     private final Clock clock;
     private final Supplier<ReservationId> reservationIdGenerator;
+    private final ReservationUsageAccounting usageAccounting;
 
     public InMemoryBudgetStateStore() {
-        this(Clock.systemUTC(), ReservationId::random);
+        this(
+                Clock.systemUTC(),
+                ReservationId::random,
+                LedgerComponents.defaultCostCalculator()
+        );
     }
 
     public InMemoryBudgetStateStore(
             Clock clock,
             Supplier<ReservationId> reservationIdGenerator
     ) {
+        this(
+                clock,
+                reservationIdGenerator,
+                LedgerComponents.defaultCostCalculator()
+        );
+    }
+
+    public InMemoryBudgetStateStore(
+            Clock clock,
+            Supplier<ReservationId> reservationIdGenerator,
+            CostCalculator costCalculator
+    ) {
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
         this.reservationIdGenerator = Objects.requireNonNull(
                 reservationIdGenerator,
                 "reservationIdGenerator must not be null"
+        );
+        this.usageAccounting = new ReservationUsageAccounting(
+                Objects.requireNonNull(costCalculator, "costCalculator must not be null")
         );
     }
 
@@ -159,8 +183,7 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
         }
     }
 
-    @Override
-    public ReservationTransition commit(ReservationId reservationId, Cost actualCost) {
+    ReservationTransition commitCost(ReservationId reservationId, Cost actualCost) {
         Objects.requireNonNull(actualCost, "actualCost must not be null");
         Bucket bucket = bucketFor(reservationId);
         synchronized (bucket) {
@@ -181,6 +204,16 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
             );
             return transition;
         }
+    }
+
+    @Override
+    public ReservationReconciliation commit(ActualUsageCommand command) {
+        Objects.requireNonNull(command, "command must not be null");
+        return usageAccounting.commit(
+                command,
+                reservationForAccounting(command.reservationId()),
+                this::commitCost
+        );
     }
 
     @Override
@@ -209,8 +242,7 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
         }
     }
 
-    @Override
-    public ReservationTransition reconcileLateActual(
+    ReservationTransition reconcileLateActualCost(
             ReservationId reservationId,
             Cost actualCost
     ) {
@@ -234,6 +266,16 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
             );
             return transition;
         }
+    }
+
+    @Override
+    public ReservationReconciliation reconcileLateActual(ActualUsageCommand command) {
+        Objects.requireNonNull(command, "command must not be null");
+        return usageAccounting.reconcileLateActual(
+                command,
+                reservationForAccounting(command.reservationId()),
+                this::reconcileLateActualCost
+        );
     }
 
     @Override
@@ -282,6 +324,13 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
     private void validateCurrency(Cost limit, Cost amount) {
         if (!limit.currency().equals(amount.currency())) {
             throw new IllegalArgumentException("Budget currency does not match cost currency");
+        }
+    }
+
+    BudgetReservation reservationForAccounting(ReservationId reservationId) {
+        Bucket bucket = bucketFor(reservationId);
+        synchronized (bucket) {
+            return accountingState(bucket, reservationId).reservation();
         }
     }
 
@@ -589,10 +638,12 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
                 reservation.key(),
                 reservation.limit(),
                 reservation.amount(),
+                reservation.requestId(),
                 reservation.idempotencyKey(),
                 reservation.modelId(),
                 reservation.pricingPolicyId(),
                 reservation.catalogVersion(),
+                reservation.pricingSnapshot(),
                 state,
                 reservation.createdAt()
         );

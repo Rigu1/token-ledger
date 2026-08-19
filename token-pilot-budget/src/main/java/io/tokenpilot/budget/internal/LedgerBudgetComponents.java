@@ -3,9 +3,12 @@ package io.tokenpilot.budget.internal;
 import io.tokenpilot.budget.BudgetEvaluator;
 import io.tokenpilot.budget.BudgetPolicy;
 import io.tokenpilot.budget.BudgetStateStore;
+import io.tokenpilot.budget.ReservationAccounting;
 import io.tokenpilot.budget.ReservationId;
+import io.tokenpilot.core.CostCalculator;
 
 import java.time.Clock;
+import java.util.Objects;
 import java.util.function.Supplier;
 
 /**
@@ -25,6 +28,33 @@ public final class LedgerBudgetComponents {
         Supplier<ReservationId> reservationIdGenerator
     ) {
         return new InMemoryBudgetStateStore(clock, reservationIdGenerator);
+    }
+
+    public static BudgetStateStore inMemoryBudgetStateStore(
+        Clock clock,
+        Supplier<ReservationId> reservationIdGenerator,
+        CostCalculator costCalculator
+    ) {
+        return new InMemoryBudgetStateStore(
+            clock,
+            reservationIdGenerator,
+            costCalculator
+        );
+    }
+
+    /**
+     * 예약을 생성한 store와 동일한 객체의 회계 명령 진입점을 반환합니다.
+     */
+    public static ReservationAccounting reservationAccounting(
+        BudgetStateStore stateStore
+    ) {
+        Objects.requireNonNull(stateStore, "stateStore must not be null");
+        if (stateStore instanceof ReservationAccounting accounting) {
+            return accounting;
+        }
+        throw new IllegalArgumentException(
+            "stateStore must support reservation accounting"
+        );
     }
 
     public static BudgetEvaluator defaultBudgetEvaluator(

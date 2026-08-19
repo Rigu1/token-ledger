@@ -10,6 +10,8 @@ import io.tokenpilot.budget.ReservationId;
 import io.tokenpilot.budget.ReservationStatus;
 import io.tokenpilot.budget.ReservationState;
 import io.tokenpilot.core.domain.Cost;
+import io.tokenpilot.core.domain.PricingSnapshot;
+import io.tokenpilot.core.domain.TokenType;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -17,6 +19,8 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Currency;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -62,6 +66,27 @@ class BudgetReservationStoreTest {
         assertThat(result.snapshot().remaining()).isEqualTo(usd("40.00"));
         assertThat(result.snapshot().activeReservationIds())
                 .containsExactly(result.reservation().id());
+    }
+
+    @Test
+    void 예약은_요청_시점의_exact_pricing_snapshot을_보관한다() {
+        InMemoryBudgetStateStore store = store();
+        PricingSnapshot snapshot = pricingSnapshot("0.10", "0.20");
+
+        BudgetReservationResult result = store.checkAndReserve(
+                new BudgetReservationRequest(
+                        KEY,
+                        LIMIT,
+                        usd("60.00"),
+                        new IdempotencyKey("request-1"),
+                        "gpt-4o-mini",
+                        "pricing-v1",
+                        "catalog-v1",
+                        Optional.of(snapshot)
+                )
+        );
+
+        assertThat(result.reservation().pricingSnapshot()).contains(snapshot);
     }
 
     @Test
@@ -318,5 +343,24 @@ class BudgetReservationStoreTest {
 
     private static Cost usd(String amount) {
         return Cost.of(new BigDecimal(amount), USD);
+    }
+
+    private static PricingSnapshot pricingSnapshot(
+            String promptRate,
+            String completionRate
+    ) {
+        return new PricingSnapshot(
+                "gpt-4o-mini",
+                "pricing-v1",
+                "catalog-v1",
+                CLOCK.instant(),
+                Map.of(
+                        TokenType.PROMPT,
+                        new BigDecimal(promptRate),
+                        TokenType.COMPLETION,
+                        new BigDecimal(completionRate)
+                ),
+                USD
+        );
     }
 }
