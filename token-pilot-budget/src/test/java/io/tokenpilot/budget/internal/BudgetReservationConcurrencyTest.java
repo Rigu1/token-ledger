@@ -10,6 +10,7 @@ import io.tokenpilot.budget.ReservationId;
 import io.tokenpilot.budget.ReservationStatus;
 import io.tokenpilot.core.domain.Cost;
 import org.junit.jupiter.api.RepeatedTest;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 
 import java.math.BigDecimal;
@@ -78,6 +79,38 @@ class BudgetReservationConcurrencyTest {
         assertThat(snapshot.effectiveUsage().compareTo(snapshot.limit())).isNegative();
         assertThat(createdCost(results)).isEqualTo(snapshot.activeReservedCost());
         assertThat(fixture.generatedIds()).hasValue(333);
+    }
+
+    @RepeatedTest(3)
+    @Timeout(value = 15, unit = TimeUnit.SECONDS)
+    void 이미_확정된_비용을_포함해_동시_예약은_한도를_초과하지_않는다() throws Exception {
+        StoreFixture fixture = fixture();
+        fixture.store().addCost(KEY, LIMIT, usd("400.00"));
+        Cost reservationAmount = usd("2.00");
+        List<Callable<BudgetReservationResult>> commands = IntStream.range(0, 300)
+                .mapToObj(index -> (Callable<BudgetReservationResult>) () ->
+                        fixture.store().checkAndReserve(
+                                KEY,
+                                LIMIT,
+                                reservationAmount,
+                                "committed-request-" + index
+                        ))
+                .toList();
+
+        List<BudgetReservationResult> results = runConcurrently(commands);
+        BudgetSnapshot snapshot = fixture.store().snapshot(KEY, LIMIT);
+
+        assertThat(statusCounts(results))
+                .as("snapshot=%s", snapshot)
+                .containsEntry(ReservationStatus.CREATED, 299L)
+                .containsEntry(ReservationStatus.BLOCKED, 1L);
+        assertThat(snapshot.committedCost()).isEqualTo(usd("400.00"));
+        assertThat(snapshot.activeReservedCost()).isEqualTo(usd("598.00"));
+        assertThat(snapshot.effectiveUsage()).isEqualTo(usd("998.00"));
+        assertThat(snapshot.remaining()).isEqualTo(usd("2.00"));
+        assertThat(snapshot.activeReservationIds()).hasSize(299);
+        assertThat(createdCost(results)).isEqualTo(snapshot.activeReservedCost());
+        assertThat(fixture.generatedIds()).hasValue(299);
     }
 
     @RepeatedTest(3)
@@ -206,6 +239,55 @@ class BudgetReservationConcurrencyTest {
             assertReservationOnlySnapshot(snapshot, usd("200.00"), 100);
         }
         assertThat(fixture.generatedIds()).hasValue(300);
+    }
+
+    @Test
+    void 실패한_예약_시도는_idempotency_key를_점유하지_않는다() {
+        StoreFixture fixture = fixture();
+
+        BudgetReservationResult initial = fixture.store().checkAndReserve(
+                KEY,
+                LIMIT,
+                usd("900.00"),
+                "initial-request"
+        );
+        BudgetReservationResult blocked = fixture.store().checkAndReserve(
+                KEY,
+                LIMIT,
+                usd("100.00"),
+                "blocked-request"
+        );
+        BudgetReservationResult blockedRetry = fixture.store().checkAndReserve(
+                KEY,
+                LIMIT,
+                usd("100.00"),
+                "blocked-request"
+        );
+        BudgetReservationResult mismatch = fixture.store().checkAndReserve(
+                KEY,
+                LIMIT,
+                Cost.of(new BigDecimal("1.00"), KRW),
+                "currency-request"
+        );
+        BudgetReservationResult validCurrencyRetry = fixture.store().checkAndReserve(
+                KEY,
+                LIMIT,
+                usd("1.00"),
+                "currency-request"
+        );
+
+        assertThat(initial.status()).isEqualTo(ReservationStatus.CREATED);
+        assertThat(blocked.status()).isEqualTo(ReservationStatus.BLOCKED);
+        assertThat(blocked.reservation()).isNull();
+        assertThat(blockedRetry.status()).isEqualTo(ReservationStatus.BLOCKED);
+        assertThat(blockedRetry.reservation()).isNull();
+        assertThat(mismatch.status()).isEqualTo(ReservationStatus.CURRENCY_MISMATCH);
+        assertThat(mismatch.reservation()).isNull();
+        assertThat(validCurrencyRetry.status()).isEqualTo(ReservationStatus.CREATED);
+        assertThat(validCurrencyRetry.reservation().amount()).isEqualTo(usd("1.00"));
+        assertThat(fixture.store().snapshot(KEY, LIMIT).activeReservedCost())
+                .isEqualTo(usd("901.00"));
+        assertThat(fixture.generatedIds()).hasValue(2);
     }
 
     private static <T> List<T> runConcurrently(List<? extends Callable<T>> commands)
