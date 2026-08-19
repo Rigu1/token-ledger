@@ -28,8 +28,8 @@ public final class ReservationStateMachine {
         );
     }
 
-    /** 공급자 호출 후 actual을 알 수 있으면 비용을 확정합니다. */
-    public static ReservationTransition onActualKnown(ReservationState currentState) {
+    /** 전달받은 actual을 확정하기 위한 상태 전이를 판단합니다. */
+    public static ReservationTransition commit(ReservationState currentState) {
         return transitionFrom(
                 currentState,
                 ReservationState.IN_FLIGHT,
@@ -37,8 +37,8 @@ public final class ReservationStateMachine {
         );
     }
 
-    /** 공급자 호출 후 actual을 알 수 없으면 정산 대기로 전환합니다. */
-    public static ReservationTransition onActualUnavailable(ReservationState currentState) {
+    /** actual을 전달받지 못한 예약을 정산 대기로 전환할 수 있는지 판단합니다. */
+    public static ReservationTransition markReconciliationRequired(ReservationState currentState) {
         return transitionFrom(
                 currentState,
                 ReservationState.IN_FLIGHT,
@@ -46,8 +46,8 @@ public final class ReservationStateMachine {
         );
     }
 
-    /** 정산 대기 중 late actual이 도착하면 비용을 확정합니다. */
-    public static ReservationTransition onLateActual(ReservationState currentState) {
+    /** 정산 대기 중 전달받은 late actual을 확정할 수 있는지 판단합니다. */
+    public static ReservationTransition reconcileLateActual(ReservationState currentState) {
         return transitionFrom(
                 currentState,
                 ReservationState.RECONCILIATION_REQUIRED,

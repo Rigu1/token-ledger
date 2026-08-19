@@ -59,9 +59,9 @@ class ReservationStateMachineTest {
     }
 
     @Test
-    @DisplayName("호출 후 actual을 알면 비용 확정 상태가 된다")
-    void commitsInFlightReservationWhenActualIsKnown() {
-        var transition = ReservationStateMachine.onActualKnown(IN_FLIGHT);
+    @DisplayName("호출 후 actual을 전달해 commit하면 비용이 확정된다")
+    void commitsInFlightReservationWithActual() {
+        var transition = ReservationStateMachine.commit(IN_FLIGHT);
 
         assertThat(transition.previousState()).isEqualTo(IN_FLIGHT);
         assertThat(transition.resultingState()).isEqualTo(COMMITTED);
@@ -69,9 +69,9 @@ class ReservationStateMachineTest {
     }
 
     @Test
-    @DisplayName("호출 후 actual을 알 수 없으면 정산 대기 상태가 된다")
-    void requiresReconciliationWhenActualIsUnavailable() {
-        var transition = ReservationStateMachine.onActualUnavailable(IN_FLIGHT);
+    @DisplayName("actual을 확보하지 못해 정산 대기를 요청하면 정산 대기 상태가 된다")
+    void marksReconciliationRequiredWithoutActual() {
+        var transition = ReservationStateMachine.markReconciliationRequired(IN_FLIGHT);
 
         assertThat(transition.previousState()).isEqualTo(IN_FLIGHT);
         assertThat(transition.resultingState()).isEqualTo(RECONCILIATION_REQUIRED);
@@ -79,9 +79,9 @@ class ReservationStateMachineTest {
     }
 
     @Test
-    @DisplayName("정산 대기 중 late actual이 도착하면 비용 확정 상태가 된다")
-    void commitsReservationWhenLateActualArrives() {
-        var transition = ReservationStateMachine.onLateActual(RECONCILIATION_REQUIRED);
+    @DisplayName("late actual을 전달해 reconcile하면 비용이 확정된다")
+    void reconcilesReservationWithLateActual() {
+        var transition = ReservationStateMachine.reconcileLateActual(RECONCILIATION_REQUIRED);
 
         assertThat(transition.previousState()).isEqualTo(RECONCILIATION_REQUIRED);
         assertThat(transition.resultingState()).isEqualTo(COMMITTED);
@@ -101,7 +101,7 @@ class ReservationStateMachineTest {
     @Test
     @DisplayName("상태 정보만으로 종료 명령 재사용을 판단하지 않는다")
     void doesNotInferTerminalReplayFromStateAlone() {
-        var transition = ReservationStateMachine.onActualKnown(COMMITTED);
+        var transition = ReservationStateMachine.commit(COMMITTED);
 
         assertThat(transition.previousState()).isEqualTo(COMMITTED);
         assertThat(transition.resultingState()).isEqualTo(COMMITTED);
