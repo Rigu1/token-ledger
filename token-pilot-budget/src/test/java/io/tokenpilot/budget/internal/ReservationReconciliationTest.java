@@ -12,6 +12,7 @@ import io.tokenpilot.budget.ReservationAccountingEvent;
 import io.tokenpilot.budget.ReservationAccountingReason;
 import io.tokenpilot.budget.ReservationActualTokens;
 import io.tokenpilot.budget.ReservationReconciliation;
+import io.tokenpilot.budget.ReservationStatus;
 import io.tokenpilot.budget.ReservationTokenEstimate;
 import io.tokenpilot.core.CostCalculator;
 import io.tokenpilot.core.domain.Cost;
@@ -126,6 +127,67 @@ class ReservationReconciliationTest {
         ReservationReconciliation reconciliation = reconcile("60.00", "120.00");
 
         assertThat(reconciliation.overLimit()).isTrue();
+    }
+
+    @Test
+    @DisplayName("actual 초과로 limit을 넘으면 비용을 반영하고 다음 예약을 차단한다")
+    void blocksNextReservationAfterActualExceedsLimit() {
+        InMemoryBudgetStateStore store = store((usage, plan) -> usd("120.00"));
+        PricingSnapshot snapshot = pricingSnapshot();
+        ReservationId reservationId = reserve(store, snapshot, usd("60.00"));
+        store.markInFlight(reservationId);
+
+        ReservationReconciliation reconciliation = store.commit(
+                command(reservationId)
+        );
+        var blocked = store.checkAndReserve(
+                new BudgetReservationRequest(
+                        KEY,
+                        LIMIT,
+                        usd("1.00"),
+                        "request-2",
+                        new IdempotencyKey("deduplication-2"),
+                        snapshot,
+                        TOKEN_ESTIMATE
+                )
+        );
+
+        assertThat(reconciliation.overLimit()).isTrue();
+        assertThat(store.snapshot(KEY, LIMIT).committedCost())
+                .isEqualTo(usd("120.00"));
+        assertThat(blocked.status()).isEqualTo(ReservationStatus.BLOCKED);
+    }
+
+    @Test
+    @DisplayName("callback timeout은 estimate를 pending에 유지해 다음 예약에 반영한다")
+    void keepsTimedOutInFlightLiabilityInAdmission() {
+        InMemoryBudgetStateStore store = store((usage, plan) -> usd("40.00"));
+        PricingSnapshot snapshot = pricingSnapshot();
+        ReservationId reservationId = reserve(store, snapshot, usd("60.00"));
+        store.markInFlight(reservationId);
+
+        var transition = store.markReconciliationRequired(
+                reservationId,
+                ReservationAccountingReason.CALLBACK_TIMED_OUT
+        );
+        var blocked = store.checkAndReserve(
+                new BudgetReservationRequest(
+                        KEY,
+                        LIMIT,
+                        usd("50.00"),
+                        "request-2",
+                        new IdempotencyKey("deduplication-2"),
+                        snapshot,
+                        TOKEN_ESTIMATE
+                )
+        );
+
+        assertThat(transition.previousState()).isEqualTo(IN_FLIGHT);
+        assertThat(transition.resultingState())
+                .isEqualTo(RECONCILIATION_REQUIRED);
+        assertThat(store.snapshot(KEY, LIMIT).pendingReconciliationLiability())
+                .isEqualTo(usd("60.00"));
+        assertThat(blocked.status()).isEqualTo(ReservationStatus.BLOCKED);
     }
 
     @Test
