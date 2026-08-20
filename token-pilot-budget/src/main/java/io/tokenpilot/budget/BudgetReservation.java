@@ -21,6 +21,7 @@ public record BudgetReservation(
         String pricingPolicyId,
         String catalogVersion,
         Optional<PricingSnapshot> pricingSnapshot,
+        Optional<ReservationTokenEstimate> tokenEstimate,
         ReservationState state,
         Instant createdAt
 ) {
@@ -46,6 +47,10 @@ public record BudgetReservation(
         pricingSnapshot = Objects.requireNonNull(
                 pricingSnapshot,
                 "pricingSnapshot must not be null"
+        );
+        tokenEstimate = Objects.requireNonNull(
+                tokenEstimate,
+                "tokenEstimate must not be null"
         );
         if (pricingSnapshot.isPresent()) {
             PricingSnapshot snapshot = pricingSnapshot.orElseThrow();
@@ -96,6 +101,7 @@ public record BudgetReservation(
                 pricingPolicyId,
                 catalogVersion,
                 Optional.empty(),
+                Optional.empty(),
                 state,
                 createdAt
         );
@@ -118,6 +124,7 @@ public record BudgetReservation(
                 request.pricingPolicyId(),
                 request.catalogVersion(),
                 request.pricingSnapshot(),
+                request.tokenEstimate(),
                 ReservationState.RESERVED,
                 createdAt
         );
@@ -132,7 +139,8 @@ public record BudgetReservation(
                 && Objects.equals(modelId, request.modelId())
                 && Objects.equals(pricingPolicyId, request.pricingPolicyId())
                 && Objects.equals(catalogVersion, request.catalogVersion())
-                && pricingSnapshot.equals(request.pricingSnapshot());
+                && pricingSnapshot.equals(request.pricingSnapshot())
+                && tokenEstimate.equals(request.tokenEstimate());
     }
 
     /** 이 예약이 지정한 provider 요청에 속하는지 확인합니다. */

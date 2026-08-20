@@ -1,6 +1,7 @@
 package io.tokenpilot.budget.internal;
 
 import io.tokenpilot.budget.ActualUsageCommand;
+import io.tokenpilot.budget.AccountingTransitionStatus;
 import io.tokenpilot.budget.BudgetKey;
 import io.tokenpilot.budget.BudgetReservation;
 import io.tokenpilot.budget.BudgetReservationRequest;
@@ -9,11 +10,14 @@ import io.tokenpilot.budget.BudgetSnapshot;
 import io.tokenpilot.budget.BudgetStateStore;
 import io.tokenpilot.budget.IdempotencyKey;
 import io.tokenpilot.budget.ReservationAccounting;
+import io.tokenpilot.budget.ReservationAccountingReason;
+import io.tokenpilot.budget.ReservationActualTokens;
 import io.tokenpilot.budget.ReservationId;
 import io.tokenpilot.budget.ReservationReconciliation;
 import io.tokenpilot.budget.ReservationState;
 import io.tokenpilot.budget.ReservationStateMachine;
 import io.tokenpilot.budget.ReservationTransition;
+import io.tokenpilot.budget.ReservationTokenEstimate;
 import io.tokenpilot.core.CostCalculator;
 import io.tokenpilot.core.domain.Cost;
 import io.tokenpilot.core.domain.PricingSnapshot;
@@ -23,11 +27,11 @@ import java.time.Clock;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.BiFunction;
 import java.util.function.Supplier;
 
 /**
@@ -131,7 +135,30 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
     }
 
     @Override
-    public ReservationTransition releaseBeforeDispatch(ReservationId reservationId) {
+    public ReservationTransition release(
+            ReservationId reservationId,
+            ReservationAccountingReason reason
+    ) {
+        Objects.requireNonNull(reason, "reason must not be null");
+        return switch (reason) {
+            case CANCELLED_BEFORE_DISPATCH -> releaseBeforeDispatch(
+                    reservationId,
+                    reason
+            );
+            case PROVIDER_CONFIRMED_UNBILLED -> releaseConfirmedUnbilled(
+                    reservationId,
+                    reason
+            );
+            default -> throw new IllegalArgumentException(
+                    "reason is not valid for release"
+            );
+        };
+    }
+
+    private ReservationTransition releaseBeforeDispatch(
+            ReservationId reservationId,
+            ReservationAccountingReason reason
+    ) {
         Bucket bucket = bucketFor(reservationId);
         synchronized (bucket) {
             ReservationAccountingState accountingState = accountingState(
@@ -158,8 +185,10 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
         }
     }
 
-    @Override
-    public ReservationTransition releaseConfirmedUnbilled(ReservationId reservationId) {
+    private ReservationTransition releaseConfirmedUnbilled(
+            ReservationId reservationId,
+            ReservationAccountingReason reason
+    ) {
         Bucket bucket = bucketFor(reservationId);
         synchronized (bucket) {
             ReservationAccountingState accountingState = accountingState(
@@ -187,49 +216,37 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
     }
 
     ReservationTransition commitCost(ReservationId reservationId, Cost actualCost) {
-        Objects.requireNonNull(actualCost, "actualCost must not be null");
-        Bucket bucket = bucketFor(reservationId);
-        synchronized (bucket) {
-            ReservationAccountingState accountingState = accountingState(
-                    bucket,
-                    reservationId
-            );
-            ReservationTransition transition = accountingState.evaluateCommit(actualCost);
-            if (!transition.status().isApplied()) {
-                return transition;
-            }
-
-            commitActiveReservation(
-                    bucket,
-                    accountingState,
-                    actualCost,
-                    transition.resultingState()
-            );
-            return transition;
-        }
+        return applyCost(
+                reservationId,
+                actualCost,
+                CommitType.DIRECT,
+                Optional.empty()
+        ).transition();
     }
 
     @Override
     public ReservationReconciliation commit(ActualUsageCommand command) {
         return reconcileUsage(
                 command,
-                this::commitCost
+                CommitType.DIRECT,
+                ReservationAccountingReason.ACTUAL_USAGE_REPORTED
         );
     }
 
     @Override
-    public ReservationTransition markReconciliationRequired(ReservationId reservationId) {
+    public ReservationTransition markReconciliationRequired(
+            ReservationId reservationId,
+            ReservationAccountingReason reason
+    ) {
+        requireReconciliationRequiredReason(reason);
         Bucket bucket = bucketFor(reservationId);
         synchronized (bucket) {
             ReservationAccountingState accountingState = accountingState(
                     bucket,
                     reservationId
             );
-            BudgetReservation reservation = accountingState.reservation();
             ReservationTransition transition =
-                    ReservationStateMachine.markReconciliationRequired(
-                            reservation.state()
-                    );
+                    accountingState.evaluateReconciliationRequired();
             if (!transition.status().isApplied()) {
                 return transition;
             }
@@ -247,38 +264,86 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
             ReservationId reservationId,
             Cost actualCost
     ) {
+        return applyCost(
+                reservationId,
+                actualCost,
+                CommitType.LATE_ACTUAL,
+                Optional.empty()
+        ).transition();
+    }
+
+    private AccountingTransitionOutcome applyCost(
+            ReservationId reservationId,
+            Cost actualCost,
+            CommitType type,
+            Optional<ActualUsageFingerprint> fingerprint
+    ) {
         Objects.requireNonNull(actualCost, "actualCost must not be null");
+        Objects.requireNonNull(type, "type must not be null");
+        Objects.requireNonNull(fingerprint, "fingerprint must not be null");
         Bucket bucket = bucketFor(reservationId);
         synchronized (bucket) {
             ReservationAccountingState accountingState = accountingState(
                     bucket,
                     reservationId
             );
-            ReservationTransition transition = accountingState.evaluateLateActual(actualCost);
-            if (!transition.status().isApplied()) {
-                return transition;
-            }
-
-            commitPendingReservation(
+            return applyCostInBucket(
                     bucket,
                     accountingState,
                     actualCost,
-                    transition.resultingState()
+                    type,
+                    fingerprint
             );
-            return transition;
         }
+    }
+
+    private AccountingTransitionOutcome applyCostInBucket(
+            Bucket bucket,
+            ReservationAccountingState accountingState,
+            Cost actualCost,
+            CommitType type,
+        Optional<ActualUsageFingerprint> fingerprint
+    ) {
+        ReservationTransition transition = type == CommitType.DIRECT
+                ? accountingState.evaluateCommit(actualCost, fingerprint)
+                : accountingState.evaluateLateActual(actualCost, fingerprint);
+        if (!transition.status().isApplied()) {
+            return outcome(bucket, transition);
+        }
+
+        boolean overLimit = type == CommitType.DIRECT
+                ? commitActiveReservation(
+                        bucket,
+                        accountingState,
+                        actualCost,
+                        transition.resultingState(),
+                        fingerprint
+                )
+                : commitPendingReservation(
+                        bucket,
+                        accountingState,
+                        actualCost,
+                        transition.resultingState(),
+                        fingerprint
+                );
+        return new AccountingTransitionOutcome(transition, overLimit);
     }
 
     @Override
     public ReservationReconciliation reconcileLateActual(ActualUsageCommand command) {
         return reconcileUsage(
                 command,
-                this::reconcileLateActualCost
+                CommitType.LATE_ACTUAL,
+                ReservationAccountingReason.LATE_ACTUAL_USAGE_REPORTED
         );
     }
 
     @Override
-    public ReservationTransition writeOff(ReservationId reservationId) {
+    public ReservationTransition writeOff(
+            ReservationId reservationId,
+            ReservationAccountingReason reason
+    ) {
+        requireWriteOffReason(reason);
         Bucket bucket = bucketFor(reservationId);
         synchronized (bucket) {
             ReservationAccountingState accountingState = accountingState(
@@ -328,13 +393,29 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
 
     private ReservationReconciliation reconcileUsage(
             ActualUsageCommand command,
-            BiFunction<ReservationId, Cost, ReservationTransition> transition
+            CommitType type,
+            ReservationAccountingReason reason
     ) {
         Objects.requireNonNull(command, "command must not be null");
-        Objects.requireNonNull(transition, "transition must not be null");
-        BudgetReservation reservation = reservationForAccounting(
+        Objects.requireNonNull(type, "type must not be null");
+        Objects.requireNonNull(reason, "reason must not be null");
+        Bucket bucket = bucketFor(command.reservationId());
+        synchronized (bucket) {
+            return reconcileUsageInBucket(bucket, command, type, reason);
+        }
+    }
+
+    private ReservationReconciliation reconcileUsageInBucket(
+            Bucket bucket,
+            ActualUsageCommand command,
+            CommitType type,
+            ReservationAccountingReason reason
+    ) {
+        ReservationAccountingState accountingState = accountingState(
+                bucket,
                 command.reservationId()
         );
+        BudgetReservation reservation = accountingState.reservation();
         if (!reservation.belongsTo(command.requestId())) {
             throw new IllegalArgumentException(
                     "requestId must match the reservation request"
@@ -346,17 +427,58 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
                         "reservation does not contain a pricing snapshot"
                 )
         );
+        ReservationTokenEstimate tokenEstimate = reservation.tokenEstimate().orElseThrow(
+                () -> new IllegalStateException(
+                        "reservation does not contain a token estimate"
+                )
+        );
+        ReservationActualTokens actualTokens = ReservationActualTokens.from(
+                command.usage()
+        );
+        ActualUsageFingerprint fingerprint = ActualUsageFingerprint.from(
+                command,
+                actualTokens
+        );
+        Optional<AppliedCommit> reusedCommit =
+                accountingState.reusedCommit(type, fingerprint);
+        if (reusedCommit.isPresent()) {
+            AppliedCommit appliedCommit = reusedCommit.orElseThrow();
+            AccountingTransitionOutcome reused = new AccountingTransitionOutcome(
+                    ReservationTransition.unchanged(
+                            reservation.state(),
+                            AccountingTransitionStatus.REUSED
+                    ),
+                    appliedCommit.overLimit()
+            );
+            return reconciliation(
+                    command,
+                    reservation,
+                    snapshot,
+                    tokenEstimate,
+                    actualTokens,
+                    appliedCommit.actualCost(),
+                    reused,
+                    reason
+            );
+        }
+
         Cost actualCost = calculateActualCost(command, snapshot);
-        ReservationTransition appliedTransition = transition.apply(
-                reservation.id(),
-                actualCost
+        AccountingTransitionOutcome outcome = applyCostInBucket(
+                bucket,
+                accountingState,
+                actualCost,
+                type,
+                Optional.of(fingerprint)
         );
         return reconciliation(
                 command,
                 reservation,
                 snapshot,
+                tokenEstimate,
+                actualTokens,
                 actualCost,
-                appliedTransition
+                outcome,
+                reason
         );
     }
 
@@ -377,8 +499,11 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
             ActualUsageCommand command,
             BudgetReservation reservation,
             PricingSnapshot snapshot,
+            ReservationTokenEstimate tokenEstimate,
+            ReservationActualTokens actualTokens,
             Cost actualCost,
-            ReservationTransition transition
+            AccountingTransitionOutcome outcome,
+            ReservationAccountingReason reason
     ) {
         return new ReservationReconciliation(
                 command.requestId(),
@@ -387,17 +512,22 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
                 reservation.key(),
                 command.responseModelId(),
                 snapshot,
+                tokenEstimate,
+                actualTokens,
                 reservation.amount(),
                 actualCost,
-                transition
+                outcome.overLimit(),
+                outcome.transition(),
+                reason
         );
     }
 
-    private BudgetReservation reservationForAccounting(ReservationId reservationId) {
-        Bucket bucket = bucketFor(reservationId);
-        synchronized (bucket) {
-            return accountingState(bucket, reservationId).reservation();
-        }
+    private static AccountingTransitionOutcome outcome(
+            Bucket bucket,
+            ReservationTransition transition
+    ) {
+        boolean overLimit = bucket.effectiveUsage().compareTo(bucket.limit) > 0;
+        return new AccountingTransitionOutcome(transition, overLimit);
     }
 
     private ReservationId reserveOrReturnExisting(
@@ -551,11 +681,12 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
         }
     }
 
-    private void commitActiveReservation(
+    private boolean commitActiveReservation(
             Bucket bucket,
             ReservationAccountingState accountingState,
             Cost actualCost,
-            ReservationState resultingState
+            ReservationState resultingState,
+            Optional<ActualUsageFingerprint> fingerprint
     ) {
         BudgetReservation reservation = accountingState.reservation();
         Cost remainingReserved = subtract(
@@ -565,13 +696,27 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
         Cost committed = bucket.committedCost.add(actualCost);
         BudgetReservation updated = withState(reservation, resultingState);
 
+        boolean overLimit = remainingReserved
+                .add(bucket.pendingReconciliationLiability)
+                .add(committed)
+                .compareTo(bucket.limit) > 0;
+        ReservationAccountingState updatedAccountingState = fingerprint
+                .map(appliedFingerprint -> accountingState.committed(
+                        updated,
+                        actualCost,
+                        overLimit,
+                        appliedFingerprint
+                ))
+                .orElseGet(() -> accountingState.committed(updated, actualCost));
+
         bucket.activeReservedCost = remainingReserved;
         bucket.committedCost = committed;
         replaceReservationSnapshot(
                 bucket,
                 accountingState,
-                accountingState.committed(updated, actualCost)
+                updatedAccountingState
         );
+        return overLimit;
     }
 
     private void releaseActiveReservation(
@@ -617,11 +762,12 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
         );
     }
 
-    private void commitPendingReservation(
+    private boolean commitPendingReservation(
             Bucket bucket,
             ReservationAccountingState accountingState,
             Cost actualCost,
-            ReservationState resultingState
+            ReservationState resultingState,
+            Optional<ActualUsageFingerprint> fingerprint
     ) {
         BudgetReservation reservation = accountingState.reservation();
         Cost remainingPending = subtract(
@@ -631,13 +777,32 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
         Cost committed = bucket.committedCost.add(actualCost);
         BudgetReservation updated = withState(reservation, resultingState);
 
+        boolean overLimit = bucket.activeReservedCost
+                .add(remainingPending)
+                .add(committed)
+                .compareTo(bucket.limit) > 0;
+        ReservationAccountingState updatedAccountingState = fingerprint
+                .map(appliedFingerprint -> accountingState.lateActualCommitted(
+                        updated,
+                        actualCost,
+                        overLimit,
+                        appliedFingerprint
+                ))
+                .orElseGet(
+                        () -> accountingState.lateActualCommitted(
+                                updated,
+                                actualCost
+                        )
+                );
+
         bucket.pendingReconciliationLiability = remainingPending;
         bucket.committedCost = committed;
         replaceReservationSnapshot(
                 bucket,
                 accountingState,
-                accountingState.lateActualCommitted(updated, actualCost)
+                updatedAccountingState
         );
+        return overLimit;
     }
 
     private void writeOffPendingReservation(
@@ -658,6 +823,26 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
                 accountingState,
                 accountingState.withReservation(updated)
         );
+    }
+
+    private static void requireReconciliationRequiredReason(
+            ReservationAccountingReason reason
+    ) {
+        Objects.requireNonNull(reason, "reason must not be null");
+        if (reason != ReservationAccountingReason.ACTUAL_USAGE_UNAVAILABLE
+                && reason != ReservationAccountingReason.CALLBACK_TIMED_OUT) {
+            throw new IllegalArgumentException(
+                    "reason is not valid for markReconciliationRequired"
+            );
+        }
+    }
+
+    private static void requireWriteOffReason(ReservationAccountingReason reason) {
+        Objects.requireNonNull(reason, "reason must not be null");
+        if (reason != ReservationAccountingReason.MANUAL_WRITE_OFF
+                && reason != ReservationAccountingReason.ACTUAL_USAGE_UNRECOVERABLE) {
+            throw new IllegalArgumentException("reason is not valid for writeOff");
+        }
     }
 
     private void replaceReservationSnapshot(
@@ -710,6 +895,7 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
                 reservation.pricingPolicyId(),
                 reservation.catalogVersion(),
                 reservation.pricingSnapshot(),
+                reservation.tokenEstimate(),
                 state,
                 reservation.createdAt()
         );
@@ -764,6 +950,16 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
                     })
                     .map(Map.Entry::getKey)
                     .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        }
+    }
+
+    private record AccountingTransitionOutcome(
+            ReservationTransition transition,
+            boolean overLimit
+    ) {
+
+        private AccountingTransitionOutcome {
+            Objects.requireNonNull(transition, "transition must not be null");
         }
     }
 

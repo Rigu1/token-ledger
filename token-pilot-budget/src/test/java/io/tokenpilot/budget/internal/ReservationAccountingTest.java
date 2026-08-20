@@ -4,6 +4,7 @@ import io.tokenpilot.budget.BudgetKey;
 import io.tokenpilot.budget.BudgetSnapshot;
 import io.tokenpilot.budget.BudgetWindow;
 import io.tokenpilot.budget.ReservationAccounting;
+import io.tokenpilot.budget.ReservationAccountingReason;
 import io.tokenpilot.budget.ReservationId;
 import io.tokenpilot.budget.ReservationTransition;
 import io.tokenpilot.core.domain.Cost;
@@ -302,6 +303,41 @@ class ReservationAccountingTest {
     }
 
     @Test
+    @DisplayName("정산 대기 명령을 반복해도 pending은 한 번만 반영한다")
+    void reusesRepeatedPendingCommand() {
+        InMemoryBudgetStateStore store = store();
+        ReservationId reservationId = reserveInFlight(store, store, usd("60.00"));
+        store.markReconciliationRequired(reservationId);
+
+        ReservationTransition repeated = store.markReconciliationRequired(
+                reservationId,
+                ReservationAccountingReason.CALLBACK_TIMED_OUT
+        );
+
+        assertThat(repeated.status()).isEqualTo(REUSED);
+        assertThat(store.snapshot(KEY, LIMIT).pendingReconciliationLiability())
+                .isEqualTo(usd("60.00"));
+    }
+
+    @Test
+    @DisplayName("명령과 관계없는 정산 대기 사유는 상태 변경 전에 거부한다")
+    void rejectsReasonUnrelatedToPendingReconciliation() {
+        InMemoryBudgetStateStore store = store();
+        ReservationId reservationId = reserveInFlight(store, store, usd("60.00"));
+
+        assertThatThrownBy(
+                () -> store.markReconciliationRequired(
+                        reservationId,
+                        ReservationAccountingReason.MANUAL_WRITE_OFF
+                )
+        ).isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("reason is not valid for markReconciliationRequired");
+
+        assertThat(store.snapshot(KEY, LIMIT).activeReservedCost())
+                .isEqualTo(usd("60.00"));
+    }
+
+    @Test
     @DisplayName("actual이 0이면 비용을 확정하고 actual을 모르면 estimate를 pending으로 유지한다")
     void distinguishesZeroActualFromUnavailableActual() {
         InMemoryBudgetStateStore zeroActualStore = store();
@@ -485,6 +521,39 @@ class ReservationAccountingTest {
         assertThat(snapshot.activeReservedCost()).isEqualTo(usd("0.00"));
         assertThat(snapshot.committedCost()).isEqualTo(usd("0.00"));
         assertThat(snapshot.pendingReconciliationLiability()).isEqualTo(usd("0.00"));
+    }
+
+    @Test
+    @DisplayName("release는 제한된 사유로 호출 시점의 해제 행위를 선택한다")
+    void releasesAccordingToBoundedReason() {
+        InMemoryBudgetStateStore store = store();
+        ReservationId reservationId = reserve(store, usd("60.00"));
+
+        ReservationTransition transition = store.release(
+                reservationId,
+                ReservationAccountingReason.CANCELLED_BEFORE_DISPATCH
+        );
+
+        assertThat(transition)
+                .isEqualTo(ReservationTransition.applied(RESERVED, RELEASED));
+    }
+
+    @Test
+    @DisplayName("release와 관계없는 제한 사유는 상태 변경 전에 거부한다")
+    void rejectsReasonUnrelatedToRelease() {
+        InMemoryBudgetStateStore store = store();
+        ReservationId reservationId = reserve(store, usd("60.00"));
+
+        assertThatThrownBy(
+                () -> store.release(
+                        reservationId,
+                        ReservationAccountingReason.ACTUAL_USAGE_UNAVAILABLE
+                )
+        ).isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("reason is not valid for release");
+
+        assertThat(store.snapshot(KEY, LIMIT).activeReservedCost())
+                .isEqualTo(usd("60.00"));
     }
 
     @Test

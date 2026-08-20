@@ -1,0 +1,13 @@
+package io.tokenpilot.budget;
+
+/** 회계 명령과 정산 결과에 사용하는 제한된 사유입니다. */
+public enum ReservationAccountingReason {
+    ACTUAL_USAGE_REPORTED,
+    LATE_ACTUAL_USAGE_REPORTED,
+    ACTUAL_USAGE_UNAVAILABLE,
+    CALLBACK_TIMED_OUT,
+    CANCELLED_BEFORE_DISPATCH,
+    PROVIDER_CONFIRMED_UNBILLED,
+    MANUAL_WRITE_OFF,
+    ACTUAL_USAGE_UNRECOVERABLE
+}

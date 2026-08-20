@@ -12,30 +12,28 @@ import static io.tokenpilot.budget.AccountingTransitionStatus.REUSED;
 /**
  * 이미 적용된 release의 종류와 재호출 판단을 보관합니다.
  */
-record AppliedRelease(Kind kind) {
+record AppliedRelease(ReleaseType type) {
 
     AppliedRelease {
-        Objects.requireNonNull(kind, "kind must not be null");
+        Objects.requireNonNull(type, "type must not be null");
     }
 
     static AppliedRelease beforeDispatch() {
-        return new AppliedRelease(Kind.BEFORE_DISPATCH);
+        return new AppliedRelease(ReleaseType.BEFORE_DISPATCH);
     }
 
     static AppliedRelease confirmedUnbilled() {
-        return new AppliedRelease(Kind.CONFIRMED_UNBILLED);
+        return new AppliedRelease(ReleaseType.CONFIRMED_UNBILLED);
     }
 
-    ReservationTransition evaluate(Kind requestedKind, ReservationState state) {
-        Objects.requireNonNull(requestedKind, "requestedKind must not be null");
+    ReservationTransition evaluate(
+            ReleaseType requestedType,
+            ReservationState state
+    ) {
+        Objects.requireNonNull(requestedType, "requestedType must not be null");
         Objects.requireNonNull(state, "state must not be null");
 
-        AccountingTransitionStatus status = kind == requestedKind ? REUSED : CONFLICT;
+        AccountingTransitionStatus status = type == requestedType ? REUSED : CONFLICT;
         return ReservationTransition.unchanged(state, status);
-    }
-
-    enum Kind {
-        BEFORE_DISPATCH,
-        CONFIRMED_UNBILLED
     }
 }

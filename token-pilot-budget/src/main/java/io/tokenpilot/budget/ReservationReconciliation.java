@@ -17,9 +17,13 @@ public record ReservationReconciliation(
         BudgetKey budgetKey,
         String responseModelId,
         PricingSnapshot pricingSnapshot,
+        ReservationTokenEstimate tokenEstimate,
+        ReservationActualTokens actualTokens,
         Cost estimate,
         Cost actual,
-        ReservationTransition transition
+        boolean overLimit,
+        ReservationTransition transition,
+        ReservationAccountingReason reason
 ) {
 
     public ReservationReconciliation {
@@ -29,9 +33,12 @@ public record ReservationReconciliation(
         Objects.requireNonNull(budgetKey, "budgetKey must not be null");
         responseModelId = requireText(responseModelId, "responseModelId");
         Objects.requireNonNull(pricingSnapshot, "pricingSnapshot must not be null");
+        Objects.requireNonNull(tokenEstimate, "tokenEstimate must not be null");
+        Objects.requireNonNull(actualTokens, "actualTokens must not be null");
         Objects.requireNonNull(estimate, "estimate must not be null");
         Objects.requireNonNull(actual, "actual must not be null");
         Objects.requireNonNull(transition, "transition must not be null");
+        Objects.requireNonNull(reason, "reason must not be null");
         if (!estimate.currency().equals(actual.currency())) {
             throw new IllegalArgumentException(
                     "estimate and actual must use the same currency"
@@ -62,6 +69,28 @@ public record ReservationReconciliation(
     /** actual에서 estimate를 뺀 signed 비용 차이입니다. */
     public BigDecimal delta() {
         return actual.value().subtract(estimate.value());
+    }
+
+    public long inputTokenDelta() {
+        return Math.subtractExact(
+                actualTokens.inputTokens(),
+                tokenEstimate.inputEstimatedTokens()
+        );
+    }
+
+    public long outputTokenDelta() {
+        return Math.subtractExact(
+                actualTokens.outputTokens(),
+                tokenEstimate.reservedOutputTokens()
+        );
+    }
+
+    public long totalTokenDelta() {
+        long estimatedTotal = Math.addExact(
+                tokenEstimate.inputEstimatedTokens(),
+                tokenEstimate.reservedOutputTokens()
+        );
+        return Math.subtractExact(actualTokens.totalTokens(), estimatedTotal);
     }
 
     /** estimate와 actual이 사용하는 통화입니다. */

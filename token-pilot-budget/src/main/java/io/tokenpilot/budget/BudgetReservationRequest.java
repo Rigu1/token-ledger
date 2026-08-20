@@ -22,7 +22,8 @@ public record BudgetReservationRequest(
         String modelId,
         String pricingPolicyId,
         String catalogVersion,
-        Optional<PricingSnapshot> pricingSnapshot
+        Optional<PricingSnapshot> pricingSnapshot,
+        Optional<ReservationTokenEstimate> tokenEstimate
 ) {
 
     public BudgetReservationRequest {
@@ -40,6 +41,10 @@ public record BudgetReservationRequest(
         pricingSnapshot = Objects.requireNonNull(
                 pricingSnapshot,
                 "pricingSnapshot must not be null"
+        );
+        tokenEstimate = Objects.requireNonNull(
+                tokenEstimate,
+                "tokenEstimate must not be null"
         );
         if (pricingSnapshot.isPresent()) {
             PricingSnapshot snapshot = pricingSnapshot.orElseThrow();
@@ -85,6 +90,7 @@ public record BudgetReservationRequest(
                 modelId,
                 pricingPolicyId,
                 catalogVersion,
+                Optional.empty(),
                 Optional.empty()
         );
     }
@@ -113,7 +119,8 @@ public record BudgetReservationRequest(
                 modelId,
                 pricingPolicyId,
                 catalogVersion,
-                pricingSnapshot
+                pricingSnapshot,
+                Optional.empty()
         );
     }
 
@@ -136,6 +143,7 @@ public record BudgetReservationRequest(
                 null,
                 null,
                 null,
+                Optional.empty(),
                 Optional.empty()
         );
     }
@@ -162,7 +170,56 @@ public record BudgetReservationRequest(
                 modelId,
                 pricingPolicyId,
                 catalogVersion,
+                Optional.empty(),
                 Optional.empty()
+        );
+    }
+
+    public BudgetReservationRequest(
+            BudgetKey key,
+            Cost limit,
+            Cost safeUpperBoundCost,
+            String requestId,
+            IdempotencyKey idempotencyKey,
+            String modelId,
+            String pricingPolicyId,
+            String catalogVersion,
+            Optional<PricingSnapshot> pricingSnapshot
+    ) {
+        this(
+                key,
+                limit,
+                safeUpperBoundCost,
+                requestId,
+                idempotencyKey,
+                modelId,
+                pricingPolicyId,
+                catalogVersion,
+                pricingSnapshot,
+                Optional.empty()
+        );
+    }
+
+    public BudgetReservationRequest(
+            BudgetKey key,
+            Cost limit,
+            Cost safeUpperBoundCost,
+            String requestId,
+            IdempotencyKey idempotencyKey,
+            PricingSnapshot pricingSnapshot,
+            ReservationTokenEstimate tokenEstimate
+    ) {
+        this(
+                key,
+                limit,
+                safeUpperBoundCost,
+                requestId,
+                idempotencyKey,
+                pricingSnapshot.modelId(),
+                pricingSnapshot.pricingPolicyId(),
+                pricingSnapshot.catalogVersion(),
+                Optional.of(pricingSnapshot),
+                Optional.of(tokenEstimate)
         );
     }
 
