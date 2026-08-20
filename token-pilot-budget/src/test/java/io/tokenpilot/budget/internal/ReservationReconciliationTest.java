@@ -541,6 +541,84 @@ class ReservationReconciliationTest {
     }
 
     @Test
+    @DisplayName("listener 실패는 commit을 되돌리지 않고 중복 callback에서 재시도하지 않는다")
+    void preservesCommitAndDoesNotRetryEventAfterListenerFailure() {
+        AtomicInteger deliveryCount = new AtomicInteger();
+        AtomicInteger sequence = new AtomicInteger();
+        BudgetStateStore stateStore = LedgerBudgetComponents.inMemoryBudgetStateStore(
+                CLOCK,
+                () -> new ReservationId(
+                        "reservation-" + sequence.incrementAndGet()
+                ),
+                (usage, plan) -> usd("40.00"),
+                List.of(event -> {
+                    deliveryCount.incrementAndGet();
+                    throw new IllegalStateException("listener failed");
+                })
+        );
+        ReservationAccounting accounting =
+                LedgerBudgetComponents.reservationAccounting(stateStore);
+        ReservationId reservationId = reserve(
+                stateStore,
+                pricingSnapshot(),
+                usd("60.00")
+        );
+        accounting.markInFlight(reservationId);
+
+        ReservationReconciliation applied = accounting.commit(
+                command(reservationId)
+        );
+        ReservationReconciliation duplicate = accounting.commit(
+                command(reservationId)
+        );
+
+        assertThat(applied.transition().status().isApplied()).isTrue();
+        assertThat(duplicate.transition().status()).isEqualTo(REUSED);
+        assertThat(deliveryCount).hasValue(1);
+        assertThat(stateStore.snapshot(KEY, LIMIT).committedCost())
+                .isEqualTo(usd("40.00"));
+    }
+
+    @Test
+    @DisplayName("한 listener의 실패가 다음 listener의 이벤트 수신을 막지 않는다")
+    void continuesDeliveryAfterListenerFailure() {
+        List<ReservationAccountingEvent> receivedEvents = new ArrayList<>();
+        AtomicInteger failedDeliveryCount = new AtomicInteger();
+        AtomicInteger sequence = new AtomicInteger();
+        BudgetStateStore stateStore = LedgerBudgetComponents.inMemoryBudgetStateStore(
+                CLOCK,
+                () -> new ReservationId(
+                        "reservation-" + sequence.incrementAndGet()
+                ),
+                (usage, plan) -> usd("40.00"),
+                List.of(
+                        event -> {
+                            failedDeliveryCount.incrementAndGet();
+                            throw new IllegalStateException("listener failed");
+                        },
+                        receivedEvents::add
+                )
+        );
+        ReservationAccounting accounting =
+                LedgerBudgetComponents.reservationAccounting(stateStore);
+        ReservationId reservationId = reserve(
+                stateStore,
+                pricingSnapshot(),
+                usd("60.00")
+        );
+        accounting.markInFlight(reservationId);
+
+        ReservationReconciliation applied = accounting.commit(
+                command(reservationId)
+        );
+
+        assertThat(failedDeliveryCount).hasValue(1);
+        assertThat(receivedEvents).containsExactly(
+                new ReservationAccountingEvent(applied)
+        );
+    }
+
+    @Test
     @DisplayName("공개 factory는 예약 store와 같은 객체의 정산 진입점을 반환한다")
     void exposesAccountingForTheSameReservationStore() {
         AtomicInteger sequence = new AtomicInteger();

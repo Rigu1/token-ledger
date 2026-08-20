@@ -442,7 +442,20 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
         ReservationAccountingEvent event = new ReservationAccountingEvent(
                 reconciliation
         );
-        accountingListeners.forEach(listener -> listener.onCommitted(event));
+        for (ReservationAccountingListener listener : accountingListeners) {
+            notifyBestEffort(listener, event);
+        }
+    }
+
+    private static void notifyBestEffort(
+            ReservationAccountingListener listener,
+            ReservationAccountingEvent event
+    ) {
+        try {
+            listener.onCommitted(event);
+        } catch (RuntimeException ignored) {
+            // Listener 실패는 이미 적용된 회계 상태를 되돌리지 않습니다.
+        }
     }
 
     private ReservationReconciliation reconcileUsageInBucket(
