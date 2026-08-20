@@ -8,6 +8,7 @@ import io.tokenpilot.budget.BudgetWindow;
 import io.tokenpilot.budget.IdempotencyKey;
 import io.tokenpilot.budget.ReservationId;
 import io.tokenpilot.budget.ReservationAccounting;
+import io.tokenpilot.budget.ReservationAccountingEvent;
 import io.tokenpilot.budget.ReservationAccountingReason;
 import io.tokenpilot.budget.ReservationActualTokens;
 import io.tokenpilot.budget.ReservationReconciliation;
@@ -26,6 +27,8 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Currency;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -466,6 +469,78 @@ class ReservationReconciliationTest {
     }
 
     @Test
+    @DisplayName("새롭게 적용된 commit만 회계 이벤트를 한 번 생성한다")
+    void publishesAccountingEventOnlyForNewlyAppliedCommit() {
+        List<ReservationAccountingEvent> events = new ArrayList<>();
+        AtomicInteger sequence = new AtomicInteger();
+        BudgetStateStore stateStore = LedgerBudgetComponents.inMemoryBudgetStateStore(
+                CLOCK,
+                () -> new ReservationId(
+                        "reservation-" + sequence.incrementAndGet()
+                ),
+                (usage, plan) -> usd("40.00"),
+                List.of(events::add)
+        );
+        ReservationAccounting accounting =
+                LedgerBudgetComponents.reservationAccounting(stateStore);
+        ReservationId reservationId = reserve(
+                stateStore,
+                pricingSnapshot(),
+                usd("60.00")
+        );
+        accounting.markInFlight(reservationId);
+
+        ReservationReconciliation applied = accounting.commit(command(reservationId));
+        accounting.commit(command(reservationId));
+        accounting.commit(
+                new ActualUsageCommand(
+                        "request-1",
+                        "attempt-1",
+                        reservationId,
+                        TokenUsage.from(101, 50),
+                        "gpt-4o-mini-response"
+                )
+        );
+
+        assertThat(events).containsExactly(
+                new ReservationAccountingEvent(applied)
+        );
+    }
+
+    @Test
+    @DisplayName("새롭게 적용된 late actual만 회계 이벤트를 한 번 생성한다")
+    void publishesAccountingEventOnlyForNewlyAppliedLateActual() {
+        List<ReservationAccountingEvent> events = new ArrayList<>();
+        AtomicInteger sequence = new AtomicInteger();
+        BudgetStateStore stateStore = LedgerBudgetComponents.inMemoryBudgetStateStore(
+                CLOCK,
+                () -> new ReservationId(
+                        "reservation-" + sequence.incrementAndGet()
+                ),
+                (usage, plan) -> usd("40.00"),
+                List.of(events::add)
+        );
+        ReservationAccounting accounting =
+                LedgerBudgetComponents.reservationAccounting(stateStore);
+        ReservationId reservationId = reserve(
+                stateStore,
+                pricingSnapshot(),
+                usd("60.00")
+        );
+        accounting.markInFlight(reservationId);
+        accounting.markReconciliationRequired(reservationId);
+
+        ReservationReconciliation applied = accounting.reconcileLateActual(
+                command(reservationId)
+        );
+        accounting.reconcileLateActual(command(reservationId));
+
+        assertThat(events).containsExactly(
+                new ReservationAccountingEvent(applied)
+        );
+    }
+
+    @Test
     @DisplayName("공개 factory는 예약 store와 같은 객체의 정산 진입점을 반환한다")
     void exposesAccountingForTheSameReservationStore() {
         AtomicInteger sequence = new AtomicInteger();
@@ -507,7 +582,7 @@ class ReservationReconciliationTest {
     }
 
     private static ReservationId reserve(
-            InMemoryBudgetStateStore store,
+            BudgetStateStore store,
             PricingSnapshot snapshot,
             Cost estimate
     ) {

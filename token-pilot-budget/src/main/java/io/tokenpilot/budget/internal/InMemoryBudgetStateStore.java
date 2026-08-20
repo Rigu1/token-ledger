@@ -10,6 +10,8 @@ import io.tokenpilot.budget.BudgetSnapshot;
 import io.tokenpilot.budget.BudgetStateStore;
 import io.tokenpilot.budget.IdempotencyKey;
 import io.tokenpilot.budget.ReservationAccounting;
+import io.tokenpilot.budget.ReservationAccountingEvent;
+import io.tokenpilot.budget.ReservationAccountingListener;
 import io.tokenpilot.budget.ReservationAccountingReason;
 import io.tokenpilot.budget.ReservationActualTokens;
 import io.tokenpilot.budget.ReservationId;
@@ -25,6 +27,7 @@ import io.tokenpilot.core.internal.LedgerComponents;
 
 import java.time.Clock;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -50,6 +53,7 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
     private final Clock clock;
     private final Supplier<ReservationId> reservationIdGenerator;
     private final CostCalculator costCalculator;
+    private final List<ReservationAccountingListener> accountingListeners;
 
     public InMemoryBudgetStateStore() {
         this(
@@ -75,6 +79,15 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
             Supplier<ReservationId> reservationIdGenerator,
             CostCalculator costCalculator
     ) {
+        this(clock, reservationIdGenerator, costCalculator, List.of());
+    }
+
+    public InMemoryBudgetStateStore(
+            Clock clock,
+            Supplier<ReservationId> reservationIdGenerator,
+            CostCalculator costCalculator,
+            List<ReservationAccountingListener> accountingListeners
+    ) {
         this.clock = Objects.requireNonNull(clock, "clock must not be null");
         this.reservationIdGenerator = Objects.requireNonNull(
                 reservationIdGenerator,
@@ -83,6 +96,12 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
         this.costCalculator = Objects.requireNonNull(
                 costCalculator,
                 "costCalculator must not be null"
+        );
+        this.accountingListeners = List.copyOf(
+                Objects.requireNonNull(
+                        accountingListeners,
+                        "accountingListeners must not be null"
+                )
         );
     }
 
@@ -400,9 +419,30 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
         Objects.requireNonNull(type, "type must not be null");
         Objects.requireNonNull(reason, "reason must not be null");
         Bucket bucket = bucketFor(command.reservationId());
+        ReservationReconciliation reconciliation;
         synchronized (bucket) {
-            return reconcileUsageInBucket(bucket, command, type, reason);
+            reconciliation = reconcileUsageInBucket(
+                    bucket,
+                    command,
+                    type,
+                    reason
+            );
         }
+        publishAccountingEvent(reconciliation);
+        return reconciliation;
+    }
+
+    private void publishAccountingEvent(
+            ReservationReconciliation reconciliation
+    ) {
+        if (!reconciliation.transition().status().isApplied()
+                || accountingListeners.isEmpty()) {
+            return;
+        }
+        ReservationAccountingEvent event = new ReservationAccountingEvent(
+                reconciliation
+        );
+        accountingListeners.forEach(listener -> listener.onCommitted(event));
     }
 
     private ReservationReconciliation reconcileUsageInBucket(

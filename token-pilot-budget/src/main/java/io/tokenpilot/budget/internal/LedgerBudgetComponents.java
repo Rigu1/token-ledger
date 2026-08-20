@@ -4,10 +4,12 @@ import io.tokenpilot.budget.BudgetEvaluator;
 import io.tokenpilot.budget.BudgetPolicy;
 import io.tokenpilot.budget.BudgetStateStore;
 import io.tokenpilot.budget.ReservationAccounting;
+import io.tokenpilot.budget.ReservationAccountingListener;
 import io.tokenpilot.budget.ReservationId;
 import io.tokenpilot.core.CostCalculator;
 
 import java.time.Clock;
+import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;
 
@@ -39,6 +41,20 @@ public final class LedgerBudgetComponents {
             clock,
             reservationIdGenerator,
             costCalculator
+        );
+    }
+
+    public static BudgetStateStore inMemoryBudgetStateStore(
+        Clock clock,
+        Supplier<ReservationId> reservationIdGenerator,
+        CostCalculator costCalculator,
+        List<ReservationAccountingListener> accountingListeners
+    ) {
+        return new InMemoryBudgetStateStore(
+            clock,
+            reservationIdGenerator,
+            costCalculator,
+            accountingListeners
         );
     }
 
