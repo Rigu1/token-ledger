@@ -26,6 +26,12 @@ public record ActualUsageCommand(
                     "usage must be available for actual reconciliation"
             );
         }
+        if (usage.source() != UsageSource.PROVIDER_REPORTED
+                && usage.source() != UsageSource.PROVIDER_DERIVED) {
+            throw new IllegalArgumentException(
+                    "usage source must be provider-reported or provider-derived"
+            );
+        }
         responseModelId = requireText(responseModelId, "responseModelId");
     }
 

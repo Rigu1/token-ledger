@@ -69,6 +69,9 @@ final class ReservationAccountingState {
                     CURRENCY_MISMATCH
             );
         }
+        if (reservation.state() == WRITTEN_OFF) {
+            return ReservationTransition.unchanged(WRITTEN_OFF, CONFLICT);
+        }
         if (appliedRelease.isPresent()) {
             return ReservationTransition.unchanged(reservation.state(), CONFLICT);
         }

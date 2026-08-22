@@ -234,7 +234,8 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
         }
     }
 
-    ReservationTransition commitCost(ReservationId reservationId, Cost actualCost) {
+    @Override
+    public ReservationTransition commitCost(ReservationId reservationId, Cost actualCost) {
         return applyCost(
                 reservationId,
                 actualCost,
@@ -279,7 +280,8 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
         }
     }
 
-    ReservationTransition reconcileLateActualCost(
+    @Override
+    public ReservationTransition reconcileLateActualCost(
             ReservationId reservationId,
             Cost actualCost
     ) {
@@ -306,6 +308,9 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
                     bucket,
                     reservationId
             );
+            if (fingerprint.isEmpty()) {
+                requireCostOnlyReservation(accountingState.reservation());
+            }
             return applyCostInBucket(
                     bucket,
                     accountingState,
@@ -924,6 +929,15 @@ public class InMemoryBudgetStateStore implements BudgetStateStore, ReservationAc
                 bucket.reservationsById.get(reservationId),
                 "reservation must exist in its bucket"
         );
+    }
+
+    private static void requireCostOnlyReservation(BudgetReservation reservation) {
+        if (reservation.pricingSnapshot().isPresent()
+                && reservation.tokenEstimate().isPresent()) {
+            throw new IllegalStateException(
+                    "usage-based reconciliation is required for reservations with pricing and token metadata"
+            );
+        }
     }
 
     private static Cost subtract(Cost total, Cost amount) {

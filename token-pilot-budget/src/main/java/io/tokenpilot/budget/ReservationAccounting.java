@@ -1,5 +1,7 @@
 package io.tokenpilot.budget;
 
+import io.tokenpilot.core.domain.Cost;
+
 /**
  * 예약의 회계 상태와 금액을 변경하는 단일 진입점입니다.
  *
@@ -95,6 +97,15 @@ public interface ReservationAccounting {
             ReservationAccountingReason reason
     );
 
+    /**
+     * pricing snapshot과 token estimate가 없던 호환 예약을 caller가 계산한 actual 비용으로 확정합니다.
+     *
+     * <p>이 호환 경로는 token/model correlation을 포함한
+     * {@link #commit(ActualUsageCommand)} 결과와 회계 이벤트를 만들 수 없으므로,
+     * 신규 예약에는 usage 기반 API를 사용해야 합니다.</p>
+     */
+    ReservationTransition commitCost(ReservationId reservationId, Cost actualCost);
+
     /** provider actual usage를 예약 시점 가격으로 계산하여 확정합니다. */
     ReservationReconciliation commit(ActualUsageCommand command);
 
@@ -115,6 +126,16 @@ public interface ReservationAccounting {
 
     /** 늦게 도착한 provider actual usage를 예약 시점 가격으로 계산하여 확정합니다. */
     ReservationReconciliation reconcileLateActual(ActualUsageCommand command);
+
+    /**
+     * pricing snapshot과 token estimate가 없던 pending 호환 예약을 caller가 계산한 actual 비용으로 확정합니다.
+     *
+     * <p>신규 예약에는 {@link #reconcileLateActual(ActualUsageCommand)}를 사용해야 합니다.</p>
+     */
+    ReservationTransition reconcileLateActualCost(
+            ReservationId reservationId,
+            Cost actualCost
+    );
 
     /** 후속 정산할 수 없는 pending 예약을 명시적으로 상각합니다. */
     default ReservationTransition writeOff(ReservationId reservationId) {

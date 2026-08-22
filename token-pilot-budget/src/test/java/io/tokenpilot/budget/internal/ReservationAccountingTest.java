@@ -705,6 +705,28 @@ class ReservationAccountingTest {
     }
 
     @Test
+    @DisplayName("write-off 이후 direct commit도 기존 상각을 보존하고 충돌을 반환한다")
+    void rejectsDirectCommitAfterWriteOff() {
+        InMemoryBudgetStateStore store = store();
+        ReservationId reservationId = reserveInFlight(store, store, usd("60.00"));
+        store.markReconciliationRequired(reservationId);
+        store.writeOff(reservationId);
+
+        ReservationTransition transition = store.commitCost(
+                reservationId,
+                usd("40.00")
+        );
+
+        assertThat(transition).isEqualTo(
+                ReservationTransition.unchanged(WRITTEN_OFF, CONFLICT)
+        );
+        BudgetSnapshot snapshot = store.snapshot(KEY, LIMIT);
+        assertThat(snapshot.activeReservedCost()).isEqualTo(usd("0.00"));
+        assertThat(snapshot.committedCost()).isEqualTo(usd("0.00"));
+        assertThat(snapshot.pendingReconciliationLiability()).isEqualTo(usd("0.00"));
+    }
+
+    @Test
     @DisplayName("late actual 정산 이후 write-off를 요청하면 기존 정산을 보존하고 충돌을 반환한다")
     void rejectsWriteOffAfterLateActual() {
         InMemoryBudgetStateStore store = store();

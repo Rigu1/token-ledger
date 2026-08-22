@@ -329,7 +329,7 @@ The active checklist is in `docs/30_DAY_MVP_REPORT.md`; detailed long-term works
 - The legacy `DefaultLedgerManager.record(String, ...)` path preserves an explicit zero USD fail-open result for a missing plan; the pricing-snapshot path applies `MissingPricingPolicy` and records `UNPRICED` or rejects before provider invocation, so neither behavior is a priced zero-rate plan.
 - Spring AI usage extraction converts map/JSON-compatible native usage objects into the normalized core model. Real-provider compatibility fixtures remain required because provider and Spring AI usage shapes can change independently.
 - The legacy provider boundary blocks an already-exhausted budget decision before provider invocation. Its candidate-free `STATUS` input is a regression guard, not admission evidence; the flow remains check-then-add and is not connected to the new atomic reservation lifecycle until #39.
-- In-memory reservation reconciliation uses the reservation-time pricing snapshot, moves estimate liability atomically between active, pending, and committed totals, and skips cost calculation for exact duplicate callbacks. Spring AI callback integration remains #39.
+- In-memory reservation reconciliation uses the reservation-time pricing snapshot, accepts only provider-reported or provider-derived actual usage, moves estimate liability atomically between active, pending, and committed totals, and skips cost calculation for exact duplicate callbacks. Legacy reservations without pricing/token metadata have an explicit cost-only settlement path; new reservations should use the usage-based API. Spring AI callback integration remains #39.
 - Accounting listeners run synchronously after the bucket lock is released. Runtime listener failures do not roll back a committed transition, stop later listeners, or trigger redelivery on duplicate callbacks, but delivery remains best-effort at-most-once without a durable outbox; failure observation remains #40.
 - Current Micrometer `ai.token.*` metrics may duplicate Spring AI Observability; preserve compatibility while deciding default suppression or replacement.
 - The verified Spring AI 2.0.0 path is synchronous `ChatClient` usage recording with a fake provider. Streaming cancellation and reconciliation remain outside the current compatibility guarantee.
@@ -401,6 +401,11 @@ Stage and deploy a Central release:
 ```
 
 ## Update History
+
+### 2026-08-22
+
+- Restricted usage-based reservation reconciliation to provider-reported or provider-derived usage so local and heuristic estimates cannot be committed as actual spend.
+- Added public cost-only commit and late-actual compatibility paths for legacy reservations without pricing snapshots or token estimates, and made direct commit after write-off return `CONFLICT` consistently with late actual.
 
 ### 2026-08-20
 

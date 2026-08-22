@@ -20,8 +20,12 @@ import io.tokenpilot.core.domain.PricingPlan;
 import io.tokenpilot.core.domain.PricingSnapshot;
 import io.tokenpilot.core.domain.TokenType;
 import io.tokenpilot.core.domain.TokenUsage;
+import io.tokenpilot.core.domain.TokenUsageDetails;
+import io.tokenpilot.core.domain.UsageSource;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -411,6 +415,107 @@ class ReservationReconciliationTest {
                 )
         ).isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("usage must be available for actual reconciliation");
+    }
+
+    @ParameterizedTest
+    @EnumSource(
+            value = UsageSource.class,
+            names = {"PROVIDER_REPORTED", "PROVIDER_DERIVED"},
+            mode = EnumSource.Mode.EXCLUDE
+    )
+    @DisplayName("provider actual이 아닌 usage는 정산 명령으로 만들지 않는다")
+    void rejectsNonProviderUsageSources(UsageSource source) {
+        TokenUsage usage = new TokenUsage(
+                100,
+                50,
+                TokenUsageDetails.unreported(),
+                source,
+                Map.of()
+        );
+
+        assertThatThrownBy(
+                () -> new ActualUsageCommand(
+                        "request-1",
+                        "attempt-1",
+                        new ReservationId("reservation-1"),
+                        usage,
+                        "gpt-4o-mini-response"
+                )
+        ).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("snapshot 없는 호환 예약은 공개 cost-only commit으로 정산한다")
+    void settlesLegacyReservationThroughCostOnlyCommit() {
+        InMemoryBudgetStateStore store = store((usage, plan) -> usd("40.00"));
+        ReservationAccounting accounting =
+                LedgerBudgetComponents.reservationAccounting(store);
+        ReservationId reservationId = store.checkAndReserve(
+                KEY,
+                LIMIT,
+                usd("60.00"),
+                "legacy-request"
+        ).reservationId();
+        accounting.markInFlight(reservationId);
+
+        var transition = accounting.commitCost(reservationId, usd("40.00"));
+
+        assertThat(transition.previousState()).isEqualTo(IN_FLIGHT);
+        assertThat(transition.resultingState()).isEqualTo(COMMITTED);
+        assertThat(store.snapshot(KEY, LIMIT).activeReservedCost())
+                .isEqualTo(usd("0.00"));
+        assertThat(store.snapshot(KEY, LIMIT).committedCost())
+                .isEqualTo(usd("40.00"));
+    }
+
+    @Test
+    @DisplayName("snapshot 없는 pending 호환 예약은 공개 cost-only late actual로 정산한다")
+    void settlesLegacyPendingReservationThroughCostOnlyLateActual() {
+        InMemoryBudgetStateStore store = store((usage, plan) -> usd("40.00"));
+        ReservationAccounting accounting =
+                LedgerBudgetComponents.reservationAccounting(store);
+        ReservationId reservationId = store.checkAndReserve(
+                KEY,
+                LIMIT,
+                usd("60.00"),
+                "legacy-request"
+        ).reservationId();
+        accounting.markInFlight(reservationId);
+        accounting.markReconciliationRequired(reservationId);
+
+        var transition = accounting.reconcileLateActualCost(
+                reservationId,
+                usd("40.00")
+        );
+
+        assertThat(transition.previousState()).isEqualTo(RECONCILIATION_REQUIRED);
+        assertThat(transition.resultingState()).isEqualTo(COMMITTED);
+        assertThat(store.snapshot(KEY, LIMIT).pendingReconciliationLiability())
+                .isEqualTo(usd("0.00"));
+        assertThat(store.snapshot(KEY, LIMIT).committedCost())
+                .isEqualTo(usd("40.00"));
+    }
+
+    @Test
+    @DisplayName("완전한 usage metadata 예약은 cost-only 경로로 우회 정산하지 않는다")
+    void doesNotBypassUsageReconciliationWithCostOnlyCommit() {
+        InMemoryBudgetStateStore store = store((usage, plan) -> usd("40.00"));
+        ReservationAccounting accounting =
+                LedgerBudgetComponents.reservationAccounting(store);
+        ReservationId reservationId = reserve(
+                store,
+                pricingSnapshot(),
+                usd("60.00")
+        );
+        accounting.markInFlight(reservationId);
+        var before = store.snapshot(KEY, LIMIT);
+
+        assertThatThrownBy(() -> accounting.commitCost(reservationId, usd("40.00")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage(
+                        "usage-based reconciliation is required for reservations with pricing and token metadata"
+                );
+        assertThat(store.snapshot(KEY, LIMIT)).isEqualTo(before);
     }
 
     @Test
