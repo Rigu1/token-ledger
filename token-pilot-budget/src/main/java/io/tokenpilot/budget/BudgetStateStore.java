@@ -11,7 +11,7 @@ public interface BudgetStateStore {
    * 기존 확정 비용 조회 API입니다. 예약 금액은 포함하지 않습니다.
    *
    * <p>새 provider admission 경계는 {@link #snapshot(BudgetKey, Cost)} 또는
-   * {@link #checkAndReserve(BudgetKey, Cost, Cost, String)}를 사용해야 합니다.</p>
+   * {@link #checkAndReserve(BudgetReservationRequest)}를 사용해야 합니다.</p>
    */
   Cost getAccumulatedCost(BudgetKey key, Cost limit);
 
@@ -31,7 +31,9 @@ public interface BudgetStateStore {
    * @param safeUpperBoundCost 예약할 보수적 비용 상한
    * @param idempotencyKey 중복 요청 식별자
    * @return 생성·재사용·차단·충돌·통화 불일치 결과
+   * @deprecated request ID와 idempotency key를 분리하는 overload 또는 요청 객체를 사용하세요.
    */
+  @Deprecated(since = "0.1.0", forRemoval = false)
   default BudgetReservationResult checkAndReserve(
       BudgetKey key,
       Cost limit,
@@ -48,7 +50,10 @@ public interface BudgetStateStore {
 
   /**
    * typed idempotency key를 사용하는 원자적 예약 overload입니다.
+   *
+   * @deprecated request ID와 idempotency key를 분리하는 overload 또는 요청 객체를 사용하세요.
    */
+  @Deprecated(since = "0.1.0", forRemoval = false)
   default BudgetReservationResult checkAndReserve(
       BudgetKey key,
       Cost limit,
@@ -63,6 +68,29 @@ public interface BudgetStateStore {
         null,
         null,
         null
+    ));
+  }
+
+  /**
+   * 요청 상관관계와 중복 방지 식별자를 분리하는 원자적 예약 overload입니다.
+   */
+  default BudgetReservationResult checkAndReserve(
+      BudgetKey key,
+      Cost limit,
+      Cost safeUpperBoundCost,
+      String requestId,
+      IdempotencyKey idempotencyKey
+  ) {
+    return checkAndReserve(new BudgetReservationRequest(
+        key,
+        limit,
+        safeUpperBoundCost,
+        requestId,
+        idempotencyKey,
+        null,
+        null,
+        null,
+        java.util.Optional.empty()
     ));
   }
 

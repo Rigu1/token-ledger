@@ -4,7 +4,7 @@
 
 Token Pilot is evolving from a Spring AI usage-tracking starter into a framework-independent Java LLM control and accounting core with optional framework and observability adapters.
 
-Current truth: post-call usage normalization, cost calculation, ledger events, Micrometer publishing, Clock-based monthly budget windows, pure budget decisions, typed missing-pricing policies, pricing snapshots, framework-independent token count results, a UTF-8 byte heuristic estimator, a preflight cost-bound projection, versioned model metadata, conservative context admission, a plain-Java core consumer verification path, and the framework-independent in-memory atomic reservation/idempotency foundation are implemented. Candidate-aware request production and estimate/actual cost reconciliation are 30-day MVP targets, not current capabilities.
+Current truth: post-call usage normalization, cost calculation, ledger events, Micrometer publishing, Clock-based monthly budget windows, pure budget decisions, typed missing-pricing policies, pricing snapshots, framework-independent token count results, a UTF-8 byte heuristic estimator, a preflight cost-bound projection, versioned model metadata, conservative context admission, a plain-Java core consumer verification path, framework-independent in-memory atomic reservations, and estimate/actual reconciliation with best-effort accounting events are implemented. Candidate-aware request production and Spring AI lifecycle integration remain 30-day MVP targets, not current capabilities.
 
 Distribution direction: publish a framework-independent core and an optional Spring AI convenience starter from the same repository and release train. The existing starter artifact is `token-pilot-starter`; `token-pilot-spring-ai-starter` is only a target name until a compatibility ADR and module change land.
 
@@ -74,7 +74,7 @@ Token Pilot의 제품 포지션은 framework-independent Java LLM control and ac
 | `token-pilot-core` | Basic implementation complete | Domain records, pricing, calculator, registry, ledger manager, pricing snapshots, versioned model catalog, token count results, UTF-8 byte heuristic estimation, preflight cost-bound projection, conservative context admission, and public plain-Java consumer verification |
 | `token-pilot-spring-ai` | Basic implementation complete | Spring AI 2.0.0 `UsageExtractor`, `LedgerAdvisor`, pricing snapshot resolution, response usage recording, reconciliation decisions, and legacy provider-boundary BLOCK enforcement |
 | `token-pilot-micrometer` | Basic implementation complete | `MetricsOptions`, tag whitelist, and metric metadata exist; metric ownership must be narrowed |
-| `token-pilot-budget` | Basic atomic reservation implementation | Typed monthly keys, Clock/ZoneId windows, pure status/admission decisions, safe-upper-bound reservations, bucket-scoped atomicity, idempotency, and framework-independent snapshots implemented; candidate production, lifecycle reconciliation, and durable stores remain |
+| `token-pilot-budget` | Atomic reservation and reconciliation implemented | Typed monthly keys, Clock/ZoneId windows, safe-upper-bound reservations, commit/release/write-off lifecycle, pending reconciliation liability, estimate/actual token and cost deltas, duplicate callback protection, and framework-independent best-effort accounting events implemented; candidate production and durable stores remain |
 | `token-pilot-notification` | Basic implementation complete | Event API and deduplication exist; not yet connected to the full advisor/budget lifecycle |
 | `token-pilot-autoconfigure` | Basic implementation complete | Bean registration, property binding, pricing/budget/notification wiring, and `ChatClientBuilderCustomizer` implemented |
 | `token-pilot-starter` | Basic implementation complete | Thin final user entrypoint that brings runtime modules together |
@@ -329,6 +329,8 @@ The active checklist is in `docs/30_DAY_MVP_REPORT.md`; detailed long-term works
 - The legacy `DefaultLedgerManager.record(String, ...)` path preserves an explicit zero USD fail-open result for a missing plan; the pricing-snapshot path applies `MissingPricingPolicy` and records `UNPRICED` or rejects before provider invocation, so neither behavior is a priced zero-rate plan.
 - Spring AI usage extraction converts map/JSON-compatible native usage objects into the normalized core model. Real-provider compatibility fixtures remain required because provider and Spring AI usage shapes can change independently.
 - The legacy provider boundary blocks an already-exhausted budget decision before provider invocation. Its candidate-free `STATUS` input is a regression guard, not admission evidence; the flow remains check-then-add and is not connected to the new atomic reservation lifecycle until #39.
+- In-memory reservation reconciliation uses the reservation-time pricing snapshot, accepts only provider-reported or provider-derived actual usage, moves estimate liability atomically between active, pending, and committed totals, and skips cost calculation for exact duplicate callbacks. Legacy reservations without pricing/token metadata have an explicit cost-only settlement path; new reservations should use the usage-based API. Spring AI callback integration remains #39.
+- Accounting listeners run synchronously after the bucket lock is released. Runtime listener failures do not roll back a committed transition, stop later listeners, or trigger redelivery on duplicate callbacks, but delivery remains best-effort at-most-once without a durable outbox; failure observation remains #40.
 - Current Micrometer `ai.token.*` metrics may duplicate Spring AI Observability; preserve compatibility while deciding default suppression or replacement.
 - The verified Spring AI 2.0.0 path is synchronous `ChatClient` usage recording with a fake provider. Streaming cancellation and reconciliation remain outside the current compatibility guarantee.
 - The repository, README, JReleaser configuration, and every published module POM use the MIT License. `verifyPublicationMetadata` guards this release contract and ensures the sample app is not published.
@@ -399,6 +401,16 @@ Stage and deploy a Central release:
 ```
 
 ## Update History
+
+### 2026-08-22
+
+- Restricted usage-based reservation reconciliation to provider-reported or provider-derived usage so local and heuristic estimates cannot be committed as actual spend.
+- Added public cost-only commit and late-actual compatibility paths for legacy reservations without pricing snapshots or token estimates, and made direct commit after write-off return `CONFLICT` consistently with late actual.
+
+### 2026-08-20
+
+- Added the reservation accounting lifecycle for dispatch, commit, release, unresolved actual usage, late actual reconciliation, and write-off with bucket-scoped atomic liability movement and idempotent terminal outcomes.
+- Added estimate/actual token and cost deltas, over-limit results, bounded accounting reasons, exact callback fingerprinting, and framework-independent accounting events delivered best-effort at most once without rolling back successful transitions on runtime listener failures.
 
 ### 2026-08-15
 
