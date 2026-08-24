@@ -15,7 +15,6 @@ import io.tokenpilot.budget.ReservationState;
 import io.tokenpilot.budget.ReservationTokenEstimate;
 import io.tokenpilot.budget.ReservationTransition;
 import io.tokenpilot.budget.exception.BudgetExceededException;
-import io.tokenpilot.budget.internal.LedgerBudgetComponents;
 import io.tokenpilot.core.*;
 import io.tokenpilot.core.domain.*;
 import io.tokenpilot.core.exception.MissingPricingException;
@@ -117,6 +116,7 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
                 missingPricingPolicy,
                 null,
                 null,
+                null,
                 null
         );
     }
@@ -131,6 +131,7 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
             PricingEvaluator pricingEvaluator,
             MissingPricingPolicy missingPricingPolicy,
             RequestPreflight requestPreflight,
+            ReservationAccounting reservationAccounting,
             RequestContextAccessor contextAccessor,
             IdempotencyKeyResolver idempotencyKeyResolver
     ) {
@@ -164,11 +165,38 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
                 idempotencyKeyResolver,
                 "idempotencyKeyResolver must not be null"
         );
-        this.reservationAccounting = LedgerBudgetComponents.reservationAccounting(
-                Objects.requireNonNull(
-                        budgetStateStore,
-                        "budgetStateStore must not be null"
-                )
+        Objects.requireNonNull(
+                budgetStateStore,
+                "budgetStateStore must not be null"
+        );
+        this.reservationAccounting = Objects.requireNonNull(
+                reservationAccounting,
+                "reservationAccounting must not be null"
+        );
+    }
+
+    DefaultLedgerAdvisor(
+            UsageExtractor usageExtractor,
+            BudgetEvaluator budgetEvaluator,
+            BudgetStateStore budgetStateStore,
+            ReservationAccounting reservationAccounting,
+            RequestPreflight requestPreflight,
+            RequestContextAccessor contextAccessor,
+            IdempotencyKeyResolver idempotencyKeyResolver
+    ) {
+        this(
+                null,
+                usageExtractor,
+                budgetEvaluator,
+                budgetStateStore,
+                null,
+                null,
+                LedgerComponents.defaultPricingEvaluator(),
+                MissingPricingPolicy.FAIL_CLOSED,
+                requestPreflight,
+                reservationAccounting,
+                contextAccessor,
+                idempotencyKeyResolver
         );
     }
 

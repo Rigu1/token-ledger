@@ -16,12 +16,7 @@ import io.tokenpilot.budget.ReservationAccountingReason;
 import io.tokenpilot.budget.ReservationId;
 import io.tokenpilot.budget.ReservationState;
 import io.tokenpilot.budget.ReservationTransition;
-import io.tokenpilot.core.CostCalculator;
-import io.tokenpilot.core.LedgerManager;
-import io.tokenpilot.core.PricingEvaluator;
-import io.tokenpilot.core.PricingRegistry;
 import io.tokenpilot.core.domain.Cost;
-import io.tokenpilot.core.domain.MissingPricingPolicy;
 import io.tokenpilot.core.domain.PreflightCostResult;
 import io.tokenpilot.core.domain.PricingSnapshot;
 import io.tokenpilot.core.domain.TokenUsage;
@@ -83,14 +78,10 @@ class DefaultLedgerAdvisorLifecycleTest {
         provider = mock(CallAdvisorChain.class);
         RequestContextAccessor contextAccessor = new RequestContextAccessor();
         advisor = new DefaultLedgerAdvisor(
-                mock(LedgerManager.class),
                 usageExtractor,
                 budgetEvaluator,
                 stateStore,
-                mock(CostCalculator.class),
-                mock(PricingRegistry.class),
-                mock(PricingEvaluator.class),
-                MissingPricingPolicy.FAIL_CLOSED,
+                accounting,
                 preflight,
                 contextAccessor,
                 new IdempotencyKeyResolver(

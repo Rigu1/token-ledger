@@ -11,9 +11,14 @@ import io.tokenpilot.budget.BudgetThreshold;
 import io.tokenpilot.budget.BudgetWindow;
 import io.tokenpilot.core.CostCalculator;
 import io.tokenpilot.core.LedgerManager;
+import io.tokenpilot.core.ModelRegistry;
+import io.tokenpilot.core.PreflightCostEstimator;
 import io.tokenpilot.core.PricingEvaluator;
 import io.tokenpilot.core.PricingProvider;
 import io.tokenpilot.core.PricingRegistry;
+import io.tokenpilot.core.TokenBudget;
+import io.tokenpilot.core.TokenEstimator;
+import io.tokenpilot.budget.ReservationAccounting;
 import io.tokenpilot.core.domain.Cost;
 import io.tokenpilot.core.domain.PricingPlan;
 import io.tokenpilot.core.domain.PricingReconciliationResult;
@@ -21,7 +26,6 @@ import io.tokenpilot.core.domain.PricingResolution;
 import io.tokenpilot.core.domain.PricingSnapshot;
 import io.tokenpilot.core.domain.TokenType;
 import io.tokenpilot.core.domain.TokenUsage;
-import io.tokenpilot.core.exception.MissingPricingException;
 import io.tokenpilot.notification.BudgetNotificationHandler;
 import io.tokenpilot.notification.BudgetNotificationService;
 import io.tokenpilot.notification.NotificationStateStore;
@@ -57,7 +61,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.params.provider.Arguments.argumentSet;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 class TokenPilotAutoConfigurationTest {
 
@@ -79,6 +82,10 @@ class TokenPilotAutoConfigurationTest {
             assertThat(context).hasSingleBean(CostCalculator.class);
             assertThat(context).hasSingleBean(PricingEvaluator.class);
             assertThat(context).hasSingleBean(LedgerManager.class);
+            assertThat(context).hasSingleBean(ModelRegistry.class);
+            assertThat(context).hasSingleBean(TokenEstimator.class);
+            assertThat(context).hasSingleBean(TokenBudget.class);
+            assertThat(context).hasSingleBean(PreflightCostEstimator.class);
 
             assertThat(context).hasSingleBean(UsageExtractor.class);
             assertThat(context).hasSingleBean(LedgerAdvisor.class);
@@ -86,6 +93,7 @@ class TokenPilotAutoConfigurationTest {
 
             assertThat(context).doesNotHaveBean(BudgetStateStore.class);
             assertThat(context).doesNotHaveBean(BudgetEvaluator.class);
+            assertThat(context).doesNotHaveBean(ReservationAccounting.class);
             assertThat(context).doesNotHaveBean(NotificationStateStore.class);
             assertThat(context).doesNotHaveBean(BudgetNotificationService.class);
         });
@@ -248,6 +256,7 @@ class TokenPilotAutoConfigurationTest {
             .run(context -> {
                 assertThat(context).hasSingleBean(BudgetStateStore.class);
                 assertThat(context).hasSingleBean(BudgetEvaluator.class);
+                assertThat(context).hasSingleBean(ReservationAccounting.class);
             });
     }
 
@@ -324,30 +333,6 @@ class TokenPilotAutoConfigurationTest {
                     softly.assertThat(evaluator.lastTags())
                         .containsEntry("tenant_id", "tenant-abc");
                 });
-            });
-    }
-
-    @Test
-    @DisplayName("Budget가 활성화되면 missing pricing policy 기본값은 FAIL_CLOSED여야 한다")
-    void shouldUseFailClosedMissingPricingPolicyWhenBudgetEnabled() {
-        this.contextRunner
-            .withUserConfiguration(RecordingBudgetEvaluatorConfiguration.class)
-            .withPropertyValues("token-pilot.budget.enabled=true")
-            .run(context -> {
-                LedgerAdvisor advisor = context.getBean(LedgerAdvisor.class);
-                ChatClientRequest request = new ChatClientRequest(
-                    new Prompt("test"),
-                    Map.of(
-                        "tenant_id", "tenant-abc",
-                        "tokenpilot.model.id", "missing-model"
-                    )
-                );
-
-                assertThatThrownBy(() -> advisor.before(request, mock(AdvisorChain.class)))
-                    .isInstanceOf(MissingPricingException.class)
-                    .hasMessage("MISSING_PLAN")
-                    .extracting(exception -> ((MissingPricingException) exception).getResolution())
-                    .isEqualTo(PricingResolution.MISSING_PLAN);
             });
     }
 

@@ -33,6 +33,9 @@ public class TokenPilotProperties {
     @NestedConfigurationProperty
     private NotificationProperties notification = new NotificationProperties();
 
+    @NestedConfigurationProperty
+    private SpringAiProperties springAi = new SpringAiProperties();
+
     public boolean isEnabled() {
         return enabled;
     }
@@ -71,6 +74,14 @@ public class TokenPilotProperties {
 
     public void setNotification(NotificationProperties notification) {
         this.notification = notification;
+    }
+
+    public SpringAiProperties getSpringAi() {
+        return springAi;
+    }
+
+    public void setSpringAi(SpringAiProperties springAi) {
+        this.springAi = springAi;
     }
 
     public List<PricingPlan> toPricingPlans() {
@@ -221,6 +232,36 @@ public class TokenPilotProperties {
 
         public void setEnabled(boolean enabled) {
             this.enabled = enabled;
+        }
+    }
+
+    public static class SpringAiProperties {
+        private String defaultModelId;
+        private Long defaultReservedOutputTokens;
+        private long framingHeadroomTokens;
+
+        public String getDefaultModelId() {
+            return defaultModelId;
+        }
+
+        public void setDefaultModelId(String defaultModelId) {
+            this.defaultModelId = defaultModelId;
+        }
+
+        public Long getDefaultReservedOutputTokens() {
+            return defaultReservedOutputTokens;
+        }
+
+        public void setDefaultReservedOutputTokens(Long defaultReservedOutputTokens) {
+            this.defaultReservedOutputTokens = defaultReservedOutputTokens;
+        }
+
+        public long getFramingHeadroomTokens() {
+            return framingHeadroomTokens;
+        }
+
+        public void setFramingHeadroomTokens(long framingHeadroomTokens) {
+            this.framingHeadroomTokens = framingHeadroomTokens;
         }
     }
 }

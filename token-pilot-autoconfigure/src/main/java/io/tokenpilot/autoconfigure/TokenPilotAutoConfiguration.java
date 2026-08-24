@@ -3,14 +3,18 @@ package io.tokenpilot.autoconfigure;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.tokenpilot.budget.BudgetEvaluator;
 import io.tokenpilot.budget.BudgetStateStore;
+import io.tokenpilot.budget.ReservationAccounting;
 import io.tokenpilot.budget.internal.LedgerBudgetComponents;
 import io.tokenpilot.core.CostCalculator;
 import io.tokenpilot.core.LedgerListener;
 import io.tokenpilot.core.LedgerManager;
+import io.tokenpilot.core.ModelRegistry;
+import io.tokenpilot.core.PreflightCostEstimator;
 import io.tokenpilot.core.PricingEvaluator;
 import io.tokenpilot.core.PricingProvider;
 import io.tokenpilot.core.PricingRegistry;
-import io.tokenpilot.core.domain.MissingPricingPolicy;
+import io.tokenpilot.core.TokenBudget;
+import io.tokenpilot.core.TokenEstimator;
 import io.tokenpilot.core.internal.LedgerComponents;
 import io.tokenpilot.micrometer.internal.LedgerMicrometerComponents;
 import io.tokenpilot.springai.LedgerAdvisor;
@@ -81,6 +85,30 @@ public class TokenPilotAutoConfiguration {
         return LedgerComponents.defaultPricingEvaluator();
     }
 
+    @Bean
+    @ConditionalOnMissingBean
+    public ModelRegistry modelRegistry() {
+        return LedgerComponents.defaultModelRegistry();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public TokenEstimator tokenEstimator() {
+        return LedgerComponents.utf8ByteHeuristicTokenEstimator();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public TokenBudget tokenBudget(ModelRegistry modelRegistry) {
+        return LedgerComponents.tokenBudget(modelRegistry);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public PreflightCostEstimator preflightCostEstimator() {
+        return LedgerComponents.defaultPreflightCostEstimator();
+    }
+
     /**
      * 비용 기록 및 리스너 관리를 담당하는 LedgerManager를 등록합니다.
      */
@@ -118,23 +146,34 @@ public class TokenPilotAutoConfiguration {
             UsageExtractor usageExtractor,
             ObjectProvider<BudgetEvaluator> budgetEvaluator,
             ObjectProvider<BudgetStateStore> budgetStateStore,
+            ObjectProvider<ReservationAccounting> reservationAccounting,
             CostCalculator costCalculator,
             PricingRegistry pricingRegistry,
-            PricingEvaluator pricingEvaluator
+            PricingEvaluator pricingEvaluator,
+            ModelRegistry modelRegistry,
+            TokenEstimator tokenEstimator,
+            TokenBudget tokenBudget,
+            PreflightCostEstimator preflightCostEstimator,
+            TokenPilotProperties properties
     ) {
         BudgetEvaluator evaluator = budgetEvaluator.getIfAvailable();
         BudgetStateStore stateStore = budgetStateStore.getIfAvailable();
+        ReservationAccounting accounting = reservationAccounting.getIfAvailable();
 
-        if (evaluator != null && stateStore != null) {
-            return LedgerSpringAiComponents.defaultLedgerAdvisor(
-                    ledgerManager,
+        if (evaluator != null && stateStore != null && accounting != null) {
+            return LedgerSpringAiComponents.accountingLedgerAdvisor(
                     usageExtractor,
                     evaluator,
                     stateStore,
-                    costCalculator,
+                    accounting,
                     pricingRegistry,
-                    pricingEvaluator,
-                    MissingPricingPolicy.FAIL_CLOSED
+                    modelRegistry,
+                    tokenEstimator,
+                    tokenBudget,
+                    preflightCostEstimator,
+                    properties.getSpringAi().getDefaultModelId(),
+                    properties.getSpringAi().getDefaultReservedOutputTokens(),
+                    properties.getSpringAi().getFramingHeadroomTokens()
             );
         }
 

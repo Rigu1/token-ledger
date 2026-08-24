@@ -2,14 +2,23 @@ package io.tokenpilot.springai.internal;
 
 import io.tokenpilot.budget.BudgetEvaluator;
 import io.tokenpilot.budget.BudgetStateStore;
+import io.tokenpilot.budget.IdempotencyKey;
+import io.tokenpilot.budget.ReservationAccounting;
 import io.tokenpilot.core.CostCalculator;
 import io.tokenpilot.core.LedgerManager;
+import io.tokenpilot.core.ModelRegistry;
+import io.tokenpilot.core.PreflightCostEstimator;
 import io.tokenpilot.core.PricingEvaluator;
 import io.tokenpilot.core.PricingRegistry;
+import io.tokenpilot.core.TokenBudget;
+import io.tokenpilot.core.TokenEstimator;
 import io.tokenpilot.core.domain.MissingPricingPolicy;
 import io.tokenpilot.core.internal.LedgerComponents;
 import io.tokenpilot.springai.LedgerAdvisor;
 import io.tokenpilot.springai.UsageExtractor;
+import org.jspecify.annotations.Nullable;
+
+import java.util.UUID;
 
 /**
  * Spring AI 어댑터 컴포넌트 생성을 위한 팩토리 클래스입니다.
@@ -21,6 +30,50 @@ public final class LedgerSpringAiComponents {
 
     public static UsageExtractor defaultUsageExtractor() {
         return new DefaultUsageExtractor();
+    }
+
+    public static LedgerAdvisor accountingLedgerAdvisor(
+            UsageExtractor usageExtractor,
+            BudgetEvaluator budgetEvaluator,
+            BudgetStateStore budgetStateStore,
+            ReservationAccounting reservationAccounting,
+            PricingRegistry pricingRegistry,
+            ModelRegistry modelRegistry,
+            TokenEstimator tokenEstimator,
+            TokenBudget tokenBudget,
+            PreflightCostEstimator costEstimator,
+            @Nullable String defaultModelId,
+            @Nullable Long defaultReservedOutputTokens,
+            long framingHeadroomTokens
+    ) {
+        ReservedOutputResolver outputResolver = new ReservedOutputResolver();
+        if (defaultReservedOutputTokens != null) {
+            outputResolver = new ReservedOutputResolver(
+                    defaultReservedOutputTokens
+            );
+        }
+        RequestContextAccessor contextAccessor = new RequestContextAccessor();
+        RequestPreflight preflight = new RequestPreflight(
+                new ModelResolver(modelRegistry, defaultModelId),
+                outputResolver,
+                tokenEstimator,
+                tokenBudget,
+                pricingRegistry,
+                costEstimator,
+                framingHeadroomTokens
+        );
+        return new DefaultLedgerAdvisor(
+                usageExtractor,
+                budgetEvaluator,
+                budgetStateStore,
+                reservationAccounting,
+                preflight,
+                contextAccessor,
+                new IdempotencyKeyResolver(
+                        contextAccessor,
+                        () -> new IdempotencyKey(UUID.randomUUID().toString())
+                )
+        );
     }
 
     public static LedgerAdvisor defaultLedgerAdvisor(
