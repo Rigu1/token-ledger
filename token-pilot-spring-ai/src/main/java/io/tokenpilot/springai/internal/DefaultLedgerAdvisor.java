@@ -1,9 +1,21 @@
 package io.tokenpilot.springai.internal;
 
+import io.tokenpilot.budget.ActualUsageCommand;
 import io.tokenpilot.budget.BudgetDecision;
 import io.tokenpilot.budget.BudgetEvaluator;
+import io.tokenpilot.budget.BudgetReservationRequest;
+import io.tokenpilot.budget.BudgetReservationResult;
+import io.tokenpilot.budget.BudgetState;
 import io.tokenpilot.budget.BudgetStateStore;
+import io.tokenpilot.budget.IdempotencyKey;
+import io.tokenpilot.budget.ReservationAccounting;
+import io.tokenpilot.budget.ReservationAccountingReason;
+import io.tokenpilot.budget.ReservationId;
+import io.tokenpilot.budget.ReservationState;
+import io.tokenpilot.budget.ReservationTokenEstimate;
+import io.tokenpilot.budget.ReservationTransition;
 import io.tokenpilot.budget.exception.BudgetExceededException;
+import io.tokenpilot.budget.internal.LedgerBudgetComponents;
 import io.tokenpilot.core.*;
 import io.tokenpilot.core.domain.*;
 import io.tokenpilot.core.exception.MissingPricingException;
@@ -13,6 +25,7 @@ import io.tokenpilot.springai.UsageExtractor;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.api.AdvisorChain;
+import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
 import org.springframework.ai.chat.model.ChatResponse;
 
 import java.util.HashMap;
@@ -49,6 +62,10 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
     private final PricingRegistry pricingRegistry;
     private final PricingEvaluator pricingEvaluator;
     private final MissingPricingPolicy missingPricingPolicy;
+    private final RequestPreflight requestPreflight;
+    private final ReservationAccounting reservationAccounting;
+    private final RequestContextAccessor contextAccessor;
+    private final IdempotencyKeyResolver idempotencyKeyResolver;
 
     public DefaultLedgerAdvisor(LedgerManager ledgerManager, UsageExtractor usageExtractor) {
         this(ledgerManager, usageExtractor, null, null, null, null);
@@ -89,8 +106,39 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
                                 CostCalculator costCalculator, PricingRegistry pricingRegistry,
                                 PricingEvaluator pricingEvaluator,
                                 MissingPricingPolicy missingPricingPolicy) {
+        this(
+                ledgerManager,
+                usageExtractor,
+                budgetEvaluator,
+                budgetStateStore,
+                costCalculator,
+                pricingRegistry,
+                pricingEvaluator,
+                missingPricingPolicy,
+                null,
+                null,
+                null
+        );
+    }
+
+    DefaultLedgerAdvisor(
+            LedgerManager ledgerManager,
+            UsageExtractor usageExtractor,
+            BudgetEvaluator budgetEvaluator,
+            BudgetStateStore budgetStateStore,
+            CostCalculator costCalculator,
+            PricingRegistry pricingRegistry,
+            PricingEvaluator pricingEvaluator,
+            MissingPricingPolicy missingPricingPolicy,
+            RequestPreflight requestPreflight,
+            RequestContextAccessor contextAccessor,
+            IdempotencyKeyResolver idempotencyKeyResolver
+    ) {
         this.ledgerManager = ledgerManager;
-        this.usageExtractor = usageExtractor;
+        this.usageExtractor = Objects.requireNonNull(
+                usageExtractor,
+                "usageExtractor must not be null"
+        );
         this.budgetEvaluator = budgetEvaluator;
         this.budgetStateStore = budgetStateStore;
         this.costCalculator = costCalculator;
@@ -103,6 +151,246 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
                 missingPricingPolicy,
                 "missingPricingPolicy must not be null"
         );
+        this.requestPreflight = requestPreflight;
+        this.contextAccessor = contextAccessor;
+        this.idempotencyKeyResolver = idempotencyKeyResolver;
+        if (requestPreflight == null) {
+            this.reservationAccounting = null;
+            return;
+        }
+        Objects.requireNonNull(budgetEvaluator, "budgetEvaluator must not be null");
+        Objects.requireNonNull(contextAccessor, "contextAccessor must not be null");
+        Objects.requireNonNull(
+                idempotencyKeyResolver,
+                "idempotencyKeyResolver must not be null"
+        );
+        this.reservationAccounting = LedgerBudgetComponents.reservationAccounting(
+                Objects.requireNonNull(
+                        budgetStateStore,
+                        "budgetStateStore must not be null"
+                )
+        );
+    }
+
+    @Override
+    public ChatClientResponse adviseCall(
+            ChatClientRequest request,
+            CallAdvisorChain chain
+    ) {
+        if (requestPreflight == null) {
+            return adviseLegacyCall(request, chain);
+        }
+        return adviseAccountingCall(request, chain);
+    }
+
+    private ChatClientResponse adviseLegacyCall(
+            ChatClientRequest request,
+            CallAdvisorChain chain
+    ) {
+        ChatClientRequest resolvedRequest = before(request, chain);
+        ChatClientResponse response = chain.nextCall(resolvedRequest);
+        return after(response, chain);
+    }
+
+    private ChatClientResponse adviseAccountingCall(
+            ChatClientRequest request,
+            CallAdvisorChain chain
+    ) {
+        IdempotencyKey idempotencyKey = idempotencyKeyResolver.resolve(request);
+        ChatClientRequest correlatedRequest = contextAccessor.withIdempotencyKey(
+                request,
+                idempotencyKey
+        );
+        String requestId = requireCorrelation(
+                contextAccessor.requestId(correlatedRequest),
+                "request ID"
+        );
+        String attemptId = requireCorrelation(
+                contextAccessor.attemptId(correlatedRequest),
+                "attempt ID"
+        );
+        PreflightCostResult.Bounded costBound = requestPreflight.resolve(
+                correlatedRequest
+        );
+        BudgetDecision decision = budgetEvaluator.evaluate(
+                extractTags(correlatedRequest.context()),
+                costBound.safeUpperBoundCost()
+        );
+        enforceAdmission(decision);
+
+        ReservationId reservationId = reserve(
+                requestId,
+                idempotencyKey,
+                costBound,
+                decision
+        );
+        ChatClientRequest providerRequest = prepareDispatch(
+                correlatedRequest,
+                reservationId
+        );
+
+        ChatClientResponse response;
+        try {
+            response = chain.nextCall(providerRequest);
+        } catch (RuntimeException downstreamFailure) {
+            preservePendingLiability(reservationId, downstreamFailure);
+            throw downstreamFailure;
+        }
+        settle(response, requestId, attemptId, reservationId);
+        return response;
+    }
+
+    private void enforceAdmission(BudgetDecision decision) {
+        if (!decision.isAdmissionDecision()) {
+            throw new IllegalStateException("budget admission decision is required");
+        }
+        switch (decision.state()) {
+            case ALLOW, WARN -> {
+                return;
+            }
+            case BLOCK -> throw new BudgetExceededException(decision);
+            case CURRENCY_MISMATCH -> throw new IllegalStateException(
+                    "Budget decision currency mismatch: " + decision.reason()
+            );
+        }
+    }
+
+    private ReservationId reserve(
+            String requestId,
+            IdempotencyKey idempotencyKey,
+            PreflightCostResult.Bounded costBound,
+            BudgetDecision decision
+    ) {
+        BudgetReservationRequest reservation = new BudgetReservationRequest(
+                decision.key(),
+                decision.limit(),
+                costBound.safeUpperBoundCost(),
+                requestId,
+                idempotencyKey,
+                costBound.pricingSnapshot(),
+                new ReservationTokenEstimate(
+                        costBound.inputEstimatedTokens(),
+                        costBound.inputSafeUpperBoundTokens(),
+                        costBound.reservedOutputTokens()
+                )
+        );
+        BudgetReservationResult result = budgetStateStore.checkAndReserve(
+                reservation
+        );
+        if (!result.isAccepted()) {
+            throw new IllegalStateException(
+                    "budget reservation rejected: " + result.reason()
+            );
+        }
+        return result.reservation().id();
+    }
+
+    private ChatClientRequest prepareDispatch(
+            ChatClientRequest request,
+            ReservationId reservationId
+    ) {
+        try {
+            ChatClientRequest providerRequest = contextAccessor.withReservationId(
+                    request,
+                    reservationId
+            );
+            ReservationTransition transition = reservationAccounting.markInFlight(
+                    reservationId
+            );
+            if (transition.resultingState() != ReservationState.IN_FLIGHT) {
+                throw new IllegalStateException(
+                        "reservation did not enter IN_FLIGHT: " + transition.status()
+                );
+            }
+            return providerRequest;
+        } catch (RuntimeException failure) {
+            releaseBeforeDispatch(reservationId, failure);
+            throw failure;
+        }
+    }
+
+    private void releaseBeforeDispatch(
+            ReservationId reservationId,
+            RuntimeException originalFailure
+    ) {
+        try {
+            reservationAccounting.releaseBeforeDispatch(reservationId);
+        } catch (RuntimeException releaseFailure) {
+            originalFailure.addSuppressed(releaseFailure);
+        }
+    }
+
+    private void preservePendingLiability(
+            ReservationId reservationId,
+            RuntimeException originalFailure
+    ) {
+        try {
+            markReconciliationRequired(reservationId);
+        } catch (RuntimeException reconciliationFailure) {
+            originalFailure.addSuppressed(reconciliationFailure);
+        }
+    }
+
+    private void settle(
+            ChatClientResponse response,
+            String requestId,
+            String attemptId,
+            ReservationId reservationId
+    ) {
+        TokenUsage usage;
+        try {
+            usage = usageExtractor.extract(response);
+        } catch (RuntimeException ignored) {
+            markReconciliationRequiredAfterResponse(reservationId);
+            return;
+        }
+        if (usage.source() == UsageSource.UNAVAILABLE) {
+            markReconciliationRequiredAfterResponse(reservationId);
+            return;
+        }
+        try {
+            reservationAccounting.commit(new ActualUsageCommand(
+                    requestId,
+                    attemptId,
+                    reservationId,
+                    usage,
+                    requireResponseModelId(response)
+            ));
+        } catch (RuntimeException ignored) {
+            markReconciliationRequiredAfterResponse(reservationId);
+        }
+    }
+
+    private void markReconciliationRequired(ReservationId reservationId) {
+        reservationAccounting.markReconciliationRequired(
+                reservationId,
+                ReservationAccountingReason.ACTUAL_USAGE_UNAVAILABLE
+        );
+    }
+
+    private void markReconciliationRequiredAfterResponse(
+            ReservationId reservationId
+    ) {
+        try {
+            markReconciliationRequired(reservationId);
+        } catch (RuntimeException ignored) {
+            // Provider response is preserved. Failure observation belongs to #40.
+        }
+    }
+
+    private String requireResponseModelId(ChatClientResponse response) {
+        String modelId = extractMetadataModelId(response);
+        if (modelId == null) {
+            throw new IllegalStateException("response model ID is unavailable");
+        }
+        return modelId;
+    }
+
+    private String requireCorrelation(String value, String name) {
+        if (value == null) {
+            throw new IllegalStateException(name + " is required");
+        }
+        return value;
     }
 
     @Override
