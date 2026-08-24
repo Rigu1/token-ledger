@@ -31,6 +31,27 @@ final class RequestContextAccessor {
         return readContextValue(request, RESERVATION_ID_CONTEXT_KEY, ReservationId.class);
     }
 
+    ChatClientRequest withIdempotencyKey(
+            ChatClientRequest request,
+            IdempotencyKey idempotencyKey
+    ) {
+        Objects.requireNonNull(request, "request must not be null");
+        Objects.requireNonNull(idempotencyKey, "idempotencyKey must not be null");
+
+        IdempotencyKey existingIdempotencyKey = idempotencyKey(request);
+        if (existingIdempotencyKey == null) {
+            return request.mutate()
+                    .context(IDEMPOTENCY_CONTEXT_KEY, idempotencyKey)
+                    .build();
+        }
+        if (!existingIdempotencyKey.equals(idempotencyKey)) {
+            throw new IllegalStateException(
+                    IDEMPOTENCY_CONTEXT_KEY + " cannot be changed"
+            );
+        }
+        return request;
+    }
+
     ChatClientRequest withReservationId(
             ChatClientRequest request,
             ReservationId reservationId
