@@ -27,6 +27,7 @@ import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.core.Ordered;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -1010,7 +1011,7 @@ class DefaultLedgerAdvisorTest {
         DefaultLedgerAdvisor advisor = new DefaultLedgerAdvisor(mock(LedgerManager.class), mock(UsageExtractor.class));
 
         assertThat(advisor.getName()).isEqualTo("LedgerAdvisor");
-        assertThat(advisor.getOrder()).isEqualTo(0);
+        assertThat(advisor.getOrder()).isEqualTo(Ordered.LOWEST_PRECEDENCE - 1);
     }
 
     private static final Currency USD = Currency.getInstance("USD");
