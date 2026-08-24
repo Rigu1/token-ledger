@@ -25,7 +25,9 @@ import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.api.AdvisorChain;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
+import org.springframework.ai.chat.client.advisor.api.StreamAdvisorChain;
 import org.springframework.ai.chat.model.ChatResponse;
+import reactor.core.publisher.Flux;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -65,6 +67,7 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
     private final ReservationAccounting reservationAccounting;
     private final RequestContextAccessor contextAccessor;
     private final IdempotencyKeyResolver idempotencyKeyResolver;
+    private final StreamingRequestPolicy streamingRequestPolicy = new StreamingRequestPolicy();
 
     public DefaultLedgerAdvisor(LedgerManager ledgerManager, UsageExtractor usageExtractor) {
         this(ledgerManager, usageExtractor, null, null, null, null);
@@ -209,6 +212,15 @@ public class DefaultLedgerAdvisor implements LedgerAdvisor {
             return adviseLegacyCall(request, chain);
         }
         return adviseAccountingCall(request, chain);
+    }
+
+    @Override
+    public Flux<ChatClientResponse> adviseStream(
+            ChatClientRequest request,
+            StreamAdvisorChain chain
+    ) {
+        streamingRequestPolicy.requireSupported(requestPreflight != null);
+        return LedgerAdvisor.super.adviseStream(request, chain);
     }
 
     private ChatClientResponse adviseLegacyCall(
