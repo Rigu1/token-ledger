@@ -19,6 +19,7 @@ final class RequestPreflight {
 
     private final DefaultRequestAdapter requestAdapter = new DefaultRequestAdapter();
     private final RequestScopeResolver scopeResolver = new RequestScopeResolver();
+    private final RequestFramingPolicy framingPolicy = new RequestFramingPolicy();
     private final ModelResolver modelResolver;
     private final ReservedOutputResolver outputResolver;
     private final TokenEstimator tokenEstimator;
@@ -100,7 +101,7 @@ final class RequestPreflight {
 
     private TokenCountResult countRequest(ChatClientRequest request) {
         TokenCountResult text = tokenEstimator.estimate(
-                frame(requestAdapter.adapt(request))
+                framingPolicy.frame(requestAdapter.adapt(request))
         );
         if (text.isUnavailable()) {
             return TokenCountResult.unavailable(
@@ -123,17 +124,4 @@ final class RequestPreflight {
         );
     }
 
-    /** role, 순서와 message 경계를 보존하며 provider exact payload임을 뜻하지 않습니다. */
-    private String frame(AdaptedRequest request) {
-        StringBuilder framed = new StringBuilder();
-        for (AdaptedMessage message : request.messages()) {
-            framed.append(message.role())
-                    .append(':')
-                    .append(message.text().length())
-                    .append(':')
-                    .append(message.text())
-                    .append('\n');
-        }
-        return framed.toString();
-    }
 }
