@@ -9,6 +9,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 
+import java.nio.charset.StandardCharsets;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.clearInvocations;
@@ -49,10 +51,15 @@ class SampleApplicationSpringAiFallbackE2ETest {
     @Test
     @DisplayName("request model과 maxTokens가 없으면 설정 fallback으로 versioned safe bound 예약을 만든다")
     void configuredFallbacksCreateVersionedSafeBoundReservation() {
+        String message = "Use configured model and output fallbacks.";
+        long expectedInputSafeUpperBound = (
+                "USER:" + message.length() + ":" + message + '\n'
+        ).getBytes(StandardCharsets.UTF_8).length + 8L;
+
         chatClientBuilder.clone()
                 .build()
                 .prompt()
-                .user("Use configured model and output fallbacks.")
+                .user(message)
                 .advisors(advisors -> advisors
                         .param("tenant_id", "fallback-tenant")
                         .param("tokenpilot.request.id", "request-fallback")
@@ -64,6 +71,8 @@ class SampleApplicationSpringAiFallbackE2ETest {
                 reservation -> reservation.modelId().equals("gpt-4o-2024-08-06")
                         && reservation.tokenEstimate().orElseThrow()
                         .reservedOutputTokens() == 64
+                        && reservation.tokenEstimate().orElseThrow()
+                        .inputSafeUpperBoundTokens() == expectedInputSafeUpperBound
                         && reservation.safeUpperBoundCost().value().signum() > 0
         ));
         assertThat(providerProbe.invocationCount()).isEqualTo(1);

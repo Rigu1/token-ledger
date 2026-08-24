@@ -12,7 +12,10 @@ import io.tokenpilot.budget.ReservationAccountingReason;
 import io.tokenpilot.budget.ReservationId;
 import io.tokenpilot.budget.exception.BudgetExceededException;
 import io.tokenpilot.budget.internal.LedgerBudgetComponents;
+import io.tokenpilot.core.CostCalculator;
 import io.tokenpilot.core.domain.TokenUsage;
+import io.tokenpilot.core.domain.Cost;
+import io.tokenpilot.core.domain.PricingPlan;
 import io.tokenpilot.springai.UsageExtractor;
 import io.tokenpilot.springai.internal.LedgerSpringAiComponents;
 import io.tokenpilot.core.internal.LedgerComponents;
@@ -22,7 +25,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ChatClientBuilderCustomizer;
 import org.springframework.ai.chat.client.ChatClientResponse;
+import org.springframework.ai.chat.client.ChatClientRequest;
+import org.springframework.ai.chat.client.advisor.api.CallAdvisor;
+import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
 import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.metadata.DefaultUsage;
 import org.springframework.ai.chat.metadata.Usage;
@@ -31,6 +39,7 @@ import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.content.Media;
 import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.beans.factory.ObjectProvider;
@@ -38,8 +47,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
+import org.springframework.util.MimeTypeUtils;
 
 import java.time.Clock;
+import java.util.Currency;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -92,11 +104,15 @@ class SampleApplicationChatClientE2ETest {
     @Autowired
     private AccountingListenerProbe accountingListenerProbe;
 
+    @Autowired
+    private AccountingCostProbe accountingCostProbe;
+
     @BeforeEach
     void resetProbes() {
         providerProbe.reset();
         usageExtractorProbe.reset();
         accountingListenerProbe.reset();
+        accountingCostProbe.reset();
         reset(stateStoreProbe);
     }
 
@@ -351,12 +367,10 @@ class SampleApplicationChatClientE2ETest {
     }
 
     @Test
-    @DisplayName("commit 오류는 provider 응답을 뒤집지 않고 pending liability로 남긴다")
-    void commitErrorPreservesResponseAndPendingLiability() {
+    @DisplayName("actual 비용 통화가 reservation과 다르면 응답을 보존하고 pending liability로 남긴다")
+    void actualCurrencyMismatchPreservesResponseAndPendingLiability() {
         ReservationAccounting accountingProbe = (ReservationAccounting) stateStoreProbe;
-        doThrow(new IllegalStateException("actual currency mismatch"))
-                .when(accountingProbe)
-                .commit(any(ActualUsageCommand.class));
+        accountingCostProbe.returnCurrency(Currency.getInstance("EUR"));
 
         ChatClientResponse response = call("commit-error-tenant", "commit-error");
 
@@ -444,6 +458,84 @@ class SampleApplicationChatClientE2ETest {
     }
 
     @Test
+    @DisplayName("media 요청은 provider 호출과 예약 전에 지원하지 않는 scope로 차단한다")
+    void unsupportedMediaStopsBeforeProviderAndReservation() {
+        Media media = Media.builder()
+                .mimeType(MimeTypeUtils.IMAGE_PNG)
+                .data(new byte[]{1})
+                .build();
+
+        assertThatThrownBy(() -> chatClientBuilder.clone()
+                .build()
+                .prompt()
+                .user(user -> user
+                        .text("Do not dispatch this media request.")
+                        .media(media))
+                .options(ChatOptions.builder()
+                        .model("gpt-4o-2024-08-06")
+                        .maxTokens(100))
+                .advisors(advisors -> advisors
+                        .param("tenant_id", "unsupported-media-tenant")
+                        .param("tokenpilot.request.id", "request-unsupported-media")
+                        .param("tokenpilot.attempt.id", "attempt-unsupported-media"))
+                .call()
+                .chatClientResponse())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("UNSUPPORTED_REQUEST_SCOPE: MEDIA");
+
+        assertThat(providerProbe.invocationCount()).isZero();
+        verifyNoInteractions(stateStoreProbe);
+    }
+
+    @Test
+    @DisplayName("structured output 요청은 provider 호출과 예약 전에 지원하지 않는 scope로 차단한다")
+    void unsupportedStructuredOutputStopsBeforeProviderAndReservation() {
+        assertThatThrownBy(() -> chatClientBuilder.clone()
+                .build()
+                .prompt()
+                .user("Do not dispatch this structured output request.")
+                .options(ChatOptions.builder()
+                        .model("gpt-4o-2024-08-06")
+                        .maxTokens(100))
+                .advisors(advisors -> advisors
+                        .param("tenant_id", "unsupported-structured-output-tenant")
+                        .param("tokenpilot.request.id", "request-unsupported-structured-output")
+                        .param("tokenpilot.attempt.id", "attempt-unsupported-structured-output"))
+                .call()
+                .entity(StructuredResponse.class, parameters ->
+                        parameters.useProviderStructuredOutput()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("UNSUPPORTED_REQUEST_SCOPE: STRUCTURED_OUTPUT");
+
+        assertThat(providerProbe.invocationCount()).isZero();
+        verifyNoInteractions(stateStoreProbe);
+    }
+
+    @Test
+    @DisplayName("뒤쪽 user Advisor가 추가한 framing도 preflight에 반영해 provider 호출 전에 차단한다")
+    void downstreamUserAdvisorFramingIsIncludedInPreflight() {
+        assertThatThrownBy(() -> chatClientBuilder.clone()
+                .build()
+                .prompt()
+                .user("This text alone fits the context window.")
+                .options(ChatOptions.builder()
+                        .model("gpt-4o-2024-08-06")
+                        .maxTokens(100))
+                .advisors(advisors -> advisors
+                        .advisors(new ContextExpandingAdvisor())
+                        .param("tenant_id", "advisor-order-tenant")
+                        .param("tokenpilot.request.id", "request-advisor-order")
+                        .param("tokenpilot.attempt.id", "attempt-advisor-order"))
+                .call()
+                .chatClientResponse())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("CONTEXT_EXCEEDED");
+
+        assertThat(providerProbe.invocationCount()).isZero();
+        verifyNoInteractions(stateStoreProbe);
+    }
+
+    @Test
     @DisplayName("budget enforcement가 활성화된 streaming은 provider 호출과 예약 전에 차단한다")
     void streamingEnforcementStopsBeforeProviderAndReservation() {
         assertThatThrownBy(() -> chatClientBuilder.clone()
@@ -506,6 +598,37 @@ class SampleApplicationChatClientE2ETest {
         return stateStoreProbe.snapshot(decision.key(), decision.limit());
     }
 
+    private record StructuredResponse(String value) {
+    }
+
+    private static final class ContextExpandingAdvisor implements CallAdvisor {
+
+        @Override
+        public ChatClientResponse adviseCall(
+                ChatClientRequest request,
+                CallAdvisorChain chain
+        ) {
+            List<Message> messages = new ArrayList<>(
+                    request.prompt().getInstructions()
+            );
+            messages.add(new UserMessage("x".repeat(150_000)));
+            ChatClientRequest expandedRequest = request.mutate()
+                    .prompt(new Prompt(messages, request.prompt().getOptions()))
+                    .build();
+            return chain.nextCall(expandedRequest);
+        }
+
+        @Override
+        public String getName() {
+            return "Context Expanding User Advisor";
+        }
+
+        @Override
+        public int getOrder() {
+            return 1;
+        }
+    }
+
     static final class UsageExtractorProbe implements UsageExtractor {
         private final UsageExtractor delegate = LedgerSpringAiComponents.defaultUsageExtractor();
         private RuntimeException failure;
@@ -541,6 +664,27 @@ class SampleApplicationChatClientE2ETest {
 
         void reset() {
             deliveryCount.set(0);
+        }
+    }
+
+    static final class AccountingCostProbe {
+        private final CostCalculator delegate = LedgerComponents.defaultCostCalculator();
+        private Currency returnedCurrency;
+
+        Cost calculate(TokenUsage usage, PricingPlan plan) {
+            Cost calculated = delegate.calculate(usage, plan);
+            if (returnedCurrency == null) {
+                return calculated;
+            }
+            return Cost.of(calculated.value(), returnedCurrency);
+        }
+
+        void returnCurrency(Currency currency) {
+            returnedCurrency = currency;
+        }
+
+        void reset() {
+            returnedCurrency = null;
         }
     }
 
@@ -606,11 +750,14 @@ class SampleApplicationChatClientE2ETest {
     static class FakeChatClientConfiguration {
 
         @Bean
-        BudgetStateStore accountingProbe(AccountingListenerProbe listenerProbe) {
+        BudgetStateStore accountingProbe(
+                AccountingListenerProbe listenerProbe,
+                AccountingCostProbe costProbe
+        ) {
             BudgetStateStore delegate = LedgerBudgetComponents.inMemoryBudgetStateStore(
                     Clock.systemUTC(),
                     () -> new ReservationId(UUID.randomUUID().toString()),
-                    LedgerComponents.defaultCostCalculator(),
+                    costProbe::calculate,
                     List.of(listenerProbe::onCommitted)
             );
             return mock(
@@ -629,6 +776,11 @@ class SampleApplicationChatClientE2ETest {
         @Bean
         AccountingListenerProbe accountingListenerProbe() {
             return new AccountingListenerProbe();
+        }
+
+        @Bean
+        AccountingCostProbe accountingCostProbe() {
+            return new AccountingCostProbe();
         }
 
         @Bean
