@@ -18,6 +18,7 @@ import io.tokenpilot.core.TokenEstimator;
 import io.tokenpilot.core.internal.LedgerComponents;
 import io.tokenpilot.micrometer.internal.LedgerMicrometerComponents;
 import io.tokenpilot.springai.LedgerAdvisor;
+import io.tokenpilot.springai.ReservedOutputTokensResolver;
 import io.tokenpilot.springai.UsageExtractor;
 import io.tokenpilot.springai.internal.LedgerSpringAiComponents;
 import org.springframework.ai.chat.client.ChatClient;
@@ -154,6 +155,7 @@ public class TokenPilotAutoConfiguration {
             TokenEstimator tokenEstimator,
             TokenBudget tokenBudget,
             PreflightCostEstimator preflightCostEstimator,
+            ObjectProvider<ReservedOutputTokensResolver> reservedOutputTokensResolver,
             TokenPilotProperties properties
     ) {
         BudgetEvaluator evaluator = budgetEvaluator.getIfAvailable();
@@ -173,6 +175,7 @@ public class TokenPilotAutoConfiguration {
                     preflightCostEstimator,
                     properties.getSpringAi().getDefaultModelId(),
                     properties.getSpringAi().getDefaultReservedOutputTokens(),
+                    reservedOutputTokensResolver.getIfAvailable(),
                     properties.getSpringAi().getFramingHeadroomTokens()
             );
         }

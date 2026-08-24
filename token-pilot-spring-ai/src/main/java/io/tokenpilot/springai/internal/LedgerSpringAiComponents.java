@@ -15,6 +15,7 @@ import io.tokenpilot.core.TokenEstimator;
 import io.tokenpilot.core.domain.MissingPricingPolicy;
 import io.tokenpilot.core.internal.LedgerComponents;
 import io.tokenpilot.springai.LedgerAdvisor;
+import io.tokenpilot.springai.ReservedOutputTokensResolver;
 import io.tokenpilot.springai.UsageExtractor;
 import org.jspecify.annotations.Nullable;
 
@@ -46,12 +47,42 @@ public final class LedgerSpringAiComponents {
             @Nullable Long defaultReservedOutputTokens,
             long framingHeadroomTokens
     ) {
-        ReservedOutputResolver outputResolver = new ReservedOutputResolver();
-        if (defaultReservedOutputTokens != null) {
-            outputResolver = new ReservedOutputResolver(
-                    defaultReservedOutputTokens
-            );
-        }
+        return accountingLedgerAdvisor(
+                usageExtractor,
+                budgetEvaluator,
+                budgetStateStore,
+                reservationAccounting,
+                pricingRegistry,
+                modelRegistry,
+                tokenEstimator,
+                tokenBudget,
+                costEstimator,
+                defaultModelId,
+                defaultReservedOutputTokens,
+                null,
+                framingHeadroomTokens
+        );
+    }
+
+    public static LedgerAdvisor accountingLedgerAdvisor(
+            UsageExtractor usageExtractor,
+            BudgetEvaluator budgetEvaluator,
+            BudgetStateStore budgetStateStore,
+            ReservationAccounting reservationAccounting,
+            PricingRegistry pricingRegistry,
+            ModelRegistry modelRegistry,
+            TokenEstimator tokenEstimator,
+            TokenBudget tokenBudget,
+            PreflightCostEstimator costEstimator,
+            @Nullable String defaultModelId,
+            @Nullable Long defaultReservedOutputTokens,
+            @Nullable ReservedOutputTokensResolver providerOutputResolver,
+            long framingHeadroomTokens
+    ) {
+        ReservedOutputResolver outputResolver = new ReservedOutputResolver(
+                providerOutputResolver,
+                defaultReservedOutputTokens
+        );
         RequestContextAccessor contextAccessor = new RequestContextAccessor();
         RequestPreflight preflight = new RequestPreflight(
                 new ModelResolver(modelRegistry, defaultModelId),
