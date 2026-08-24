@@ -4,7 +4,7 @@
 
 Token Pilot is evolving from a Spring AI usage-tracking starter into a framework-independent Java LLM control and accounting core with optional framework and observability adapters.
 
-Current truth: post-call usage normalization, cost calculation, ledger events, Micrometer publishing, Clock-based monthly budget windows, pure budget decisions, typed missing-pricing policies, pricing snapshots, framework-independent token count results, a UTF-8 byte heuristic estimator, a preflight cost-bound projection, versioned model metadata, conservative context admission, a plain-Java core consumer verification path, framework-independent in-memory atomic reservations, and estimate/actual reconciliation with best-effort accounting events are implemented. Candidate-aware request production and Spring AI lifecycle integration remain 30-day MVP targets, not current capabilities.
+Current truth: post-call usage normalization, cost calculation, ledger events, Micrometer publishing, Clock-based monthly budget windows, pure budget decisions, typed missing-pricing policies, pricing snapshots, framework-independent token count results, a UTF-8 byte heuristic estimator, a preflight cost-bound projection, versioned model metadata, conservative context admission, a plain-Java core consumer verification path, framework-independent in-memory atomic reservations, and estimate/actual reconciliation with best-effort accounting events are implemented. The Spring AI 2.0 adapter now owns the supported non-streaming request lifecycle from text-scope adaptation and conservative preflight through reservation, provider invocation, and actual reconciliation. Real-provider compatibility and advanced streaming reconciliation remain outside the verified capability.
 
 Distribution direction: publish a framework-independent core and an optional Spring AI convenience starter from the same repository and release train. The existing starter artifact is `token-pilot-starter`; `token-pilot-spring-ai-starter` is only a target name until a compatibility ADR and module change land.
 
@@ -72,13 +72,13 @@ Token Pilot의 제품 포지션은 framework-independent Java LLM control and ac
 | Module | Status | Notes |
 | --- | --- | --- |
 | `token-pilot-core` | Basic implementation complete | Domain records, pricing, calculator, registry, ledger manager, pricing snapshots, versioned model catalog, token count results, UTF-8 byte heuristic estimation, preflight cost-bound projection, conservative context admission, and public plain-Java consumer verification |
-| `token-pilot-spring-ai` | Basic implementation complete | Spring AI 2.0.0 `UsageExtractor`, `LedgerAdvisor`, pricing snapshot resolution, response usage recording, reconciliation decisions, and legacy provider-boundary BLOCK enforcement |
+| `token-pilot-spring-ai` | Non-streaming accounting integration implemented | Spring AI 2.0.0 text-scope adaptation, model/output resolution, framing headroom, candidate-aware preflight and reservation, around-call reconciliation, provider-specific reserved-output resolver extension, and enforcement streaming rejection implemented |
 | `token-pilot-micrometer` | Basic implementation complete | `MetricsOptions`, tag whitelist, and metric metadata exist; metric ownership must be narrowed |
-| `token-pilot-budget` | Atomic reservation and reconciliation implemented | Typed monthly keys, Clock/ZoneId windows, safe-upper-bound reservations, commit/release/write-off lifecycle, pending reconciliation liability, estimate/actual token and cost deltas, duplicate callback protection, and framework-independent best-effort accounting events implemented; candidate production and durable stores remain |
+| `token-pilot-budget` | Atomic reservation and reconciliation implemented | Typed monthly keys, Clock/ZoneId windows, safe-upper-bound reservations, commit/release/write-off lifecycle, pending reconciliation liability, estimate/actual token and cost deltas, duplicate callback protection, and framework-independent best-effort accounting events implemented; durable stores remain |
 | `token-pilot-notification` | Basic implementation complete | Event API and deduplication exist; not yet connected to the full advisor/budget lifecycle |
-| `token-pilot-autoconfigure` | Basic implementation complete | Bean registration, property binding, pricing/budget/notification wiring, and `ChatClientBuilderCustomizer` implemented |
+| `token-pilot-autoconfigure` | Basic implementation complete | Bean registration, property binding, pricing/budget/accounting/notification wiring, provider-specific reserved-output resolver injection, budget-disabled ledger-only compatibility, and `ChatClientBuilderCustomizer` implemented |
 | `token-pilot-starter` | Basic implementation complete | Thin final user entrypoint that brings runtime modules together |
-| `token-pilot-sample-app` | Basic E2E complete | Direct ledger metrics, budget, and fake Spring AI advisor E2E implemented |
+| `token-pilot-sample-app` | Basic E2E complete | Direct ledger metrics and fake Spring AI lifecycle E2E cover preflight BLOCK, reservation, reconciliation, request-scope rejection, Advisor ordering, listener isolation, and enforcement streaming rejection without an API key |
 
 ## Current Work Focus
 
@@ -328,11 +328,14 @@ The active checklist is in `docs/30_DAY_MVP_REPORT.md`; detailed long-term works
 - Budget money interfaces now use `Cost` while preserving `BudgetKey`, `BudgetPolicy`, Clock/ZoneId monthly windows, and per-key policy snapshots.
 - The legacy `DefaultLedgerManager.record(String, ...)` path preserves an explicit zero USD fail-open result for a missing plan; the pricing-snapshot path applies `MissingPricingPolicy` and records `UNPRICED` or rejects before provider invocation, so neither behavior is a priced zero-rate plan.
 - Spring AI usage extraction converts map/JSON-compatible native usage objects into the normalized core model. Real-provider compatibility fixtures remain required because provider and Spring AI usage shapes can change independently.
-- The legacy provider boundary blocks an already-exhausted budget decision before provider invocation. Its candidate-free `STATUS` input is a regression guard, not admission evidence; the flow remains check-then-add and is not connected to the new atomic reservation lifecycle until #39.
-- In-memory reservation reconciliation uses the reservation-time pricing snapshot, accepts only provider-reported or provider-derived actual usage, moves estimate liability atomically between active, pending, and committed totals, and skips cost calculation for exact duplicate callbacks. Legacy reservations without pricing/token metadata have an explicit cost-only settlement path; new reservations should use the usage-based API. Spring AI callback integration remains #39.
+- Budget-enabled Spring AI calls use the candidate-aware atomic reservation lifecycle. Budget-disabled calls preserve the legacy ledger-only path; its candidate-free status check is a compatibility guard and must not be described as atomic admission.
+- In-memory reservation reconciliation uses the reservation-time pricing snapshot, accepts only provider-reported or provider-derived actual usage, moves estimate liability atomically between active, pending, and committed totals, and skips cost calculation for exact duplicate callbacks. Legacy reservations without pricing/token metadata have an explicit cost-only settlement path; new reservations and the Spring AI lifecycle use the usage-based API.
 - Accounting listeners run synchronously after the bucket lock is released. Runtime listener failures do not roll back a committed transition, stop later listeners, or trigger redelivery on duplicate callbacks, but delivery remains best-effort at-most-once without a durable outbox; failure observation remains #40.
 - Current Micrometer `ai.token.*` metrics may duplicate Spring AI Observability; preserve compatibility while deciding default suppression or replacement.
-- The verified Spring AI 2.0.0 path is synchronous `ChatClient` usage recording with a fake provider. Streaming cancellation and reconciliation remain outside the current compatibility guarantee.
+- The verified Spring AI 2.0.0 path is the non-streaming `ChatClient` lifecycle with a fake provider. Enforcement-enabled streaming fails closed before reservation or provider invocation; budget-disabled ledger-only streaming is a regression-tested compatibility path, not a 0.1.0 streaming accounting guarantee. Chunk accounting, cancellation, and partial-usage reconciliation remain post-MVP.
+- Spring AI cannot expose the exact provider-internal dispatch boundary. `LedgerAdvisor` runs at `LOWEST_PRECEDENCE - 1` so ordinary user Advisors finish before Token Pilot and the terminal model Advisor runs after it, but callers can still alter ordering explicitly. Downstream failures after `markInFlight()` therefore preserve estimate liability as `RECONCILIATION_REQUIRED`.
+- Request `ChatOptions.maxTokens` takes precedence over an optional user-provided `ReservedOutputTokensResolver`, which in turn precedes the configured default. Resolver values must be positive; provider-specific option capability implementations remain user-supplied.
+- Generated idempotency keys deduplicate repeated commands only when the same key is reused within the accounting contract. A key generated for one Advisor invocation does not guarantee deduplication of an upstream retry that creates a new request context.
 - The repository, README, JReleaser configuration, and every published module POM use the MIT License. `verifyPublicationMetadata` guards this release contract and ensures the sample app is not published.
 - Sample app E2E uses a fake Spring AI `ChatModel`; real provider API behavior is not yet verified.
 - `token-pilot-spring-ai-starter` does not exist in the current build; never use it as an install instruction until implemented and published.
@@ -401,6 +404,13 @@ Stage and deploy a Central release:
 ```
 
 ## Update History
+
+### 2026-08-25
+
+- Connected supported Spring AI 2.0 non-streaming `ChatClient` requests to text-scope adaptation, model/output resolution, conservative preflight, atomic reservation, in-flight tracking, provider usage extraction, and `ReservationAccounting` reconciliation in one around-call lifecycle.
+- Added namespaced request correlation without `ThreadLocal`, generated-or-reused idempotency keys, provider-specific reserved-output resolution, configurable framing headroom, and fail-closed media/tool/structured-output scope handling.
+- Placed Token Pilot immediately before the terminal model Advisor, rejected enforcement-enabled streaming before reservation/provider invocation, and preserved the budget-disabled ledger-only compatibility path.
+- Added fake-provider E2E coverage for admission failures, fallback resolution, dispatch boundaries, pending liability, model correlation, usage normalization, unsupported request scope, Advisor ordering, listener isolation, duplicate accounting commands, and streaming rejection.
 
 ### 2026-08-22
 
